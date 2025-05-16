@@ -1,8 +1,8 @@
 # Product Requirements Document: pcap-decoder-ts
 
-**Author:** Trae AI
-**Date:** October 26, 2023
-**Version:** 1.0
+**Author:** toasttastesgood
+**Date:** 04 May 2025
+**Version:** 0.1
 
 ## 1. Introduction
 
