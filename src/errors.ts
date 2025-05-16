@@ -2,6 +2,9 @@
  * Base class for all custom errors in the pcap-decoder-ts library.
  */
 export class PcapError extends Error {
+  /**
+   * @param message - The error message.
+   */
   constructor(message: string) {
     super(message);
     this.name = this.constructor.name;
@@ -23,6 +26,9 @@ export class PcapParsingError extends PcapError {
  * Error thrown when there is an issue decoding packet data.
  */
 export class PcapDecodingError extends PcapError {
+  /**
+   * @param message - The error message.
+   */
   constructor(message: string) {
     super(message);
   }
@@ -32,7 +38,10 @@ export class PcapDecodingError extends PcapError {
  * Error thrown when an operation attempts to read beyond the bounds of a buffer.
  */
 export class BufferOutOfBoundsError extends PcapParsingError {
-  constructor(message: string = "Attempted to read beyond buffer bounds") {
+  /**
+   * @param message - The error message. Defaults to "Attempted to read beyond buffer bounds".
+   */
+  constructor(message: string = 'Attempted to read beyond buffer bounds') {
     super(message);
   }
 }
@@ -50,6 +59,9 @@ export class InvalidFileFormatError extends PcapParsingError {
  * Error thrown for unsupported link layer types.
  */
 export class UnsupportedLinktypeError extends PcapDecodingError {
+  /**
+   * @param linktype - The unsupported link layer type number.
+   */
   constructor(linktype: number) {
     super(`Unsupported linktype: ${linktype}`);
   }

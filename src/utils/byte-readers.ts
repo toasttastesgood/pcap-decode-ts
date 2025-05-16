@@ -9,7 +9,9 @@ import { BufferOutOfBoundsError } from '../errors';
  */
 export function readInt8(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readInt8(offset);
 }
@@ -23,7 +25,9 @@ export function readInt8(buffer: Buffer, offset: number): number {
  */
 export function readUint8(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readUInt8(offset);
 }
@@ -37,7 +41,9 @@ export function readUint8(buffer: Buffer, offset: number): number {
  */
 export function readInt16BE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 1 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readInt16BE(offset);
 }
@@ -51,7 +57,9 @@ export function readInt16BE(buffer: Buffer, offset: number): number {
  */
 export function readInt16LE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 1 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readInt16LE(offset);
 }
@@ -65,7 +73,9 @@ export function readInt16LE(buffer: Buffer, offset: number): number {
  */
 export function readUint16BE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 1 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readUInt16BE(offset);
 }
@@ -79,7 +89,9 @@ export function readUint16BE(buffer: Buffer, offset: number): number {
  */
 export function readUint16LE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 1 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 2 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readUInt16LE(offset);
 }
@@ -93,7 +105,9 @@ export function readUint16LE(buffer: Buffer, offset: number): number {
  */
 export function readInt32BE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 3 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readInt32BE(offset);
 }
@@ -107,7 +121,9 @@ export function readInt32BE(buffer: Buffer, offset: number): number {
  */
 export function readInt32LE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 3 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readInt32LE(offset);
 }
@@ -121,7 +137,9 @@ export function readInt32LE(buffer: Buffer, offset: number): number {
  */
 export function readUint32BE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 3 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readUInt32BE(offset);
 }
@@ -135,7 +153,9 @@ export function readUint32BE(buffer: Buffer, offset: number): number {
  */
 export function readUint32LE(buffer: Buffer, offset: number): number {
   if (offset < 0 || offset + 3 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 4 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readUInt32LE(offset);
 }
@@ -149,7 +169,9 @@ export function readUint32LE(buffer: Buffer, offset: number): number {
  */
 export function readBigInt64BE(buffer: Buffer, offset: number): bigint {
   if (offset < 0 || offset + 7 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readBigInt64BE(offset);
 }
@@ -163,7 +185,9 @@ export function readBigInt64BE(buffer: Buffer, offset: number): bigint {
  */
 export function readBigInt64LE(buffer: Buffer, offset: number): bigint {
   if (offset < 0 || offset + 7 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readBigInt64LE(offset);
 }
@@ -177,7 +201,9 @@ export function readBigInt64LE(buffer: Buffer, offset: number): bigint {
  */
 export function readBigUint64BE(buffer: Buffer, offset: number): bigint {
   if (offset < 0 || offset + 7 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readBigUInt64BE(offset);
 }
@@ -191,7 +217,9 @@ export function readBigUint64BE(buffer: Buffer, offset: number): bigint {
  */
 export function readBigUint64LE(buffer: Buffer, offset: number): bigint {
   if (offset < 0 || offset + 7 >= buffer.length) {
-    throw new BufferOutOfBoundsError(`Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`);
+    throw new BufferOutOfBoundsError(
+      `Offset ${offset} for 8 bytes is out of bounds for buffer of length ${buffer.length}`,
+    );
   }
   return buffer.readBigUInt64LE(offset);
 }

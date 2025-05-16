@@ -1,5 +1,3 @@
-/* eslint-disable no-console */
-
 export enum LogLevel {
   NONE = 0,
   ERROR = 1,
@@ -31,7 +29,7 @@ export function getLogLevel(): LogLevel {
  * @param message The message to log.
  * @param optionalParams Any additional parameters to log.
  */
-export function logError(message?: any, ...optionalParams: any[]): void {
+export function logError(message?: unknown, ...optionalParams: unknown[]): void {
   if (currentLogLevel >= LogLevel.ERROR) {
     console.error(`[PCAP-ERROR] ${message}`, ...optionalParams);
   }
@@ -42,7 +40,7 @@ export function logError(message?: any, ...optionalParams: any[]): void {
  * @param message The message to log.
  * @param optionalParams Any additional parameters to log.
  */
-export function logWarning(message?: any, ...optionalParams: any[]): void {
+export function logWarning(message?: unknown, ...optionalParams: unknown[]): void {
   if (currentLogLevel >= LogLevel.WARN) {
     console.warn(`[PCAP-WARN] ${message}`, ...optionalParams);
   }
@@ -53,7 +51,7 @@ export function logWarning(message?: any, ...optionalParams: any[]): void {
  * @param message The message to log.
  * @param optionalParams Any additional parameters to log.
  */
-export function logInfo(message?: any, ...optionalParams: any[]): void {
+export function logInfo(message?: unknown, ...optionalParams: unknown[]): void {
   if (currentLogLevel >= LogLevel.INFO) {
     console.info(`[PCAP-INFO] ${message}`, ...optionalParams);
   }
@@ -64,7 +62,7 @@ export function logInfo(message?: any, ...optionalParams: any[]): void {
  * @param message The message to log.
  * @param optionalParams Any additional parameters to log.
  */
-export function logDebug(message?: any, ...optionalParams: any[]): void {
+export function logDebug(message?: unknown, ...optionalParams: unknown[]): void {
   if (currentLogLevel >= LogLevel.DEBUG) {
     console.debug(`[PCAP-DEBUG] ${message}`, ...optionalParams);
   }

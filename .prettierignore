@@ -1,0 +1,5 @@
+dist/
+docs/api/
+package-lock.json
+pcap-decode-ts.PRD.md
+PCAP-DECODE-TS_Development_Plan.md
