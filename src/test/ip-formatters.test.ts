@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { describe, it, expect } from 'vitest';
 import { formatIPv4, formatIPv6 } from '../utils/ip-formatters';
+import { BufferOutOfBoundsError } from '../errors';
 
 describe('IP Address Formatters', () => {
   describe('formatIPv4', () => {
@@ -26,12 +27,26 @@ describe('IP Address Formatters', () => {
 
     it('should throw an error if the buffer is too short', () => {
       const buf = Buffer.from([192, 168, 1]);
-      expect(() => formatIPv4(buf)).toThrow('Buffer too short to contain an IPv4 address.');
+      expect(() => formatIPv4(buf)).toThrow(BufferOutOfBoundsError);
+      expect(() => formatIPv4(buf)).toThrow(
+        /Offset 0 for 4 bytes is out of bounds for buffer of length 3. Cannot format IPv4 address./,
+      );
     });
 
     it('should throw an error if the offset makes the buffer too short', () => {
-      const buf = Buffer.from([0x00, 192, 168, 1, 1]);
-      expect(() => formatIPv4(buf, 2)).toThrow('Buffer too short to contain an IPv4 address.');
+      const buf = Buffer.from([0x00, 192, 168, 1, 1]); // length 5
+      expect(() => formatIPv4(buf, 2)).toThrow(BufferOutOfBoundsError); // offset 2 + 4 > 5
+      expect(() => formatIPv4(buf, 2)).toThrow(
+        /Offset 2 for 4 bytes is out of bounds for buffer of length 5. Cannot format IPv4 address./,
+      );
+    });
+
+    it('should throw an error for a negative offset', () => {
+      const buf = Buffer.from([1, 2, 3, 4]);
+      expect(() => formatIPv4(buf, -1)).toThrow(BufferOutOfBoundsError);
+      expect(() => formatIPv4(buf, -1)).toThrow(
+        /Offset -1 for 4 bytes is out of bounds for buffer of length 4. Cannot format IPv4 address./,
+      );
     });
   });
 
@@ -75,12 +90,26 @@ describe('IP Address Formatters', () => {
 
     it('should throw an error if the buffer is too short', () => {
       const buf = Buffer.alloc(15); // One byte too short
-      expect(() => formatIPv6(buf)).toThrow('Buffer too short to contain an IPv6 address.');
+      expect(() => formatIPv6(buf)).toThrow(BufferOutOfBoundsError);
+      expect(() => formatIPv6(buf)).toThrow(
+        /Offset 0 for 16 bytes is out of bounds for buffer of length 15. Cannot format IPv6 address./,
+      );
     });
 
     it('should throw an error if the offset makes the buffer too short', () => {
-      const buf = Buffer.alloc(17);
-      expect(() => formatIPv6(buf, 2)).toThrow('Buffer too short to contain an IPv6 address.');
+      const buf = Buffer.alloc(17); // length 17
+      expect(() => formatIPv6(buf, 2)).toThrow(BufferOutOfBoundsError); // offset 2 + 16 > 17
+      expect(() => formatIPv6(buf, 2)).toThrow(
+        /Offset 2 for 16 bytes is out of bounds for buffer of length 17. Cannot format IPv6 address./,
+      );
+    });
+
+    it('should throw an error for a negative offset', () => {
+      const buf = Buffer.alloc(16);
+      expect(() => formatIPv6(buf, -1)).toThrow(BufferOutOfBoundsError);
+      expect(() => formatIPv6(buf, -1)).toThrow(
+        /Offset -1 for 16 bytes is out of bounds for buffer of length 16. Cannot format IPv6 address./,
+      );
     });
   });
 });

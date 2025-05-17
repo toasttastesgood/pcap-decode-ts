@@ -43,7 +43,7 @@ describe('iteratePcapNgPackets', () => {
     isBigEndian: boolean,
     linkType: number,
     snapLen: number = 0,
-    _interfaceIdForMap: number,
+    // _interfaceIdForMap: number, // This parameter was unused
   ): Buffer => {
     // IDB: type(4)+len(4)+link(2)+res(2)+snap(4)+options(0)+len(4) = 20 (min, no options)
     const buffer = Buffer.alloc(20);
@@ -116,7 +116,7 @@ describe('iteratePcapNgPackets', () => {
 
   it('should correctly iterate over a simple PCAPng file with one SHB, one IDB, and one EPB (Big Endian)', async () => {
     const shb = createShb(true);
-    const idb = createIdb(true, 1, 0, 0); // Linktype 1 (Ethernet), Snaplen 0, Interface 0
+    const idb = createIdb(true, 1, 0); // Linktype 1 (Ethernet), Snaplen 0
     const payload = Buffer.from([0x01, 0x02, 0x03, 0x04]);
     const epb = createEpb(true, 0, 100, 200, payload.length, payload.length, payload);
 
@@ -140,7 +140,7 @@ describe('iteratePcapNgPackets', () => {
 
   it('should correctly iterate over a simple PCAPng file with one SHB, one IDB, and one EPB (Little Endian)', async () => {
     const shb = createShb(false);
-    const idb = createIdb(false, 1, 0, 0);
+    const idb = createIdb(false, 1, 0);
     const payload = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
     const epb = createEpb(false, 0, 300, 400, payload.length, payload.length, payload);
 
@@ -164,7 +164,7 @@ describe('iteratePcapNgPackets', () => {
 
   it('should handle multiple EPBs for the same interface', async () => {
     const shb = createShb(true);
-    const idb = createIdb(true, 1, 0, 0);
+    const idb = createIdb(true, 1, 0);
     const payload1 = Buffer.from([0x01, 0x02]);
     const epb1 = createEpb(true, 0, 10, 20, payload1.length, payload1.length, payload1);
     const payload2 = Buffer.from([0x03, 0x04, 0x05]);
@@ -186,8 +186,8 @@ describe('iteratePcapNgPackets', () => {
 
   it('should handle multiple interfaces and associate packets correctly', async () => {
     const shb = createShb(true);
-    const idb0 = createIdb(true, 1, 0, 0); // Interface 0, Ethernet
-    const idb1 = createIdb(true, 101, 0, 1); // Interface 1, Raw IP
+    const idb0 = createIdb(true, 1, 0); // Interface 0, Ethernet
+    const idb1 = createIdb(true, 101, 0); // Interface 1, Raw IP
 
     const payload0 = Buffer.from([0xaa]);
     const epb0 = createEpb(true, 0, 1000, 1, payload0.length, payload0.length, payload0); // For interface 0
@@ -224,7 +224,7 @@ describe('iteratePcapNgPackets', () => {
     // ... fill with some data ...
     writeUint32(20, 16); // Repeated block total length
 
-    const idb = createIdb(true, 1, 0, 0);
+    const idb = createIdb(true, 1, 0);
     const payload = Buffer.from([0xca, 0xfe]);
     const epb = createEpb(true, 0, 5, 5, payload.length, payload.length, payload);
 
@@ -244,7 +244,7 @@ describe('iteratePcapNgPackets', () => {
 
   it('should handle a file with only SHB and IDB (no packets)', async () => {
     const shb = createShb(true);
-    const idb = createIdb(true, 1, 0, 0);
+    const idb = createIdb(true, 1, 0);
     const fileBuffer = Buffer.concat([shb, idb]);
     const packets: PcapNgPacket[] = [];
     for await (const packet of iteratePcapNgPackets(fileBuffer)) {
@@ -256,12 +256,12 @@ describe('iteratePcapNgPackets', () => {
 
   it('should handle byte order change between sections', async () => {
     const shb1 = createShb(true); // Section 1: Big Endian
-    const idb1 = createIdb(true, 1, 0, 0);
+    const idb1 = createIdb(true, 1, 0);
     const payload1 = Buffer.from([0x01, 0x02]);
     const epb1 = createEpb(true, 0, 10, 20, payload1.length, payload1.length, payload1);
 
     const shb2 = createShb(false); // Section 2: Little Endian
-    const idb2 = createIdb(false, 2, 0, 0); // Interface ID will be 0 for this new section
+    const idb2 = createIdb(false, 2, 0); // Interface ID will be 0 for this new section
     const payload2 = Buffer.from([0x03, 0x04]);
     const epb2 = createEpb(false, 0, 30, 40, payload2.length, payload2.length, payload2);
 
@@ -283,7 +283,7 @@ describe('iteratePcapNgPackets', () => {
   });
 
   it('should log an error and stop if SHB is missing at the beginning', async () => {
-    const idb = createIdb(true, 1, 0, 0); // No SHB
+    const idb = createIdb(true, 1, 0); // No SHB
     const fileBuffer = Buffer.concat([idb]);
     const packets: PcapNgPacket[] = [];
     for await (const packet of iteratePcapNgPackets(fileBuffer)) {
@@ -297,7 +297,7 @@ describe('iteratePcapNgPackets', () => {
 
   it('should log an error and skip packet if EPB references non-existent interface ID', async () => {
     const shb = createShb(true);
-    const idb = createIdb(true, 1, 0, 0); // Defines interface 0
+    const idb = createIdb(true, 1, 0); // Defines interface 0
     const payload = Buffer.from([0x01, 0x02, 0x03, 0x04]);
     // EPB references interface 1, which is not defined
     const epb = createEpb(true, 1, 100, 200, payload.length, payload.length, payload);
@@ -349,17 +349,18 @@ describe('iteratePcapNgPackets', () => {
       packets.push(packet);
     }
     expect(packets.length).toBe(0);
-    // This should be caught by parsePcapNgGenericBlock or the check within the iterator loop
-    expect(logger.logError).toHaveBeenCalledWith(
+    expect(logger.logWarning).toHaveBeenCalledWith(
       expect.stringContaining(
-        'Error parsing generic block at offset 0: Insufficient data for full block. Declared length 1000, available 28.',
+        // The message from parsePcapNgGenericBlock is "Insufficient data for full block at offset 0. Declared length 1000, available 28."
+        // The iterator wraps this: "Error parsing generic block header at offset 0: Insufficient data for full block at offset 0. Declared length 1000, available 28.. Attempting to skip 4 bytes."
+        'Error parsing generic block header at offset 0: Insufficient data for full block at offset 0. Declared length 1000, available 28. Attempting to skip 4 bytes.',
       ),
     );
   });
 
   it('should gracefully skip a malformed block (e.g., bad specific block parsing) and continue', async () => {
     const shb = createShb(true);
-    const idb = createIdb(true, 1, 0, 0);
+    const idb = createIdb(true, 1, 0);
 
     // Create a "malformed" EPB - e.g., captured_len > actual data in body
     // For this test, we'll make a block that *looks* like an EPB by type,
@@ -418,9 +419,11 @@ describe('iteratePcapNgPackets', () => {
 
     expect(packets.length).toBe(1); // Should get the good EPB
     expect(packets[0].packetData).toEqual(goodPayload);
-    expect(logger.logError).toHaveBeenCalledWith(
+    // The error from parseEnhancedPacketBlock: "EPB captured_len (21) at offset 16 exceeds block body bounds (blockBody length 20)."
+    // The iterator wraps this: "Error parsing specific block type 0x6 (total length 32) at offset 48: EPB captured_len (21) at offset 16 exceeds block body bounds (blockBody length 20). Skipping block."
+    expect(logger.logWarning).toHaveBeenCalledWith(
       expect.stringContaining(
-        'Error parsing specific block type 0x6 at offset 48: EPB captured length exceeds block body bounds.',
+        'Error parsing specific block type 0x6 (total length 32) at offset 48: EPB captured_len (21) at offset 16 exceeds block body bounds (blockBody length 20). Skipping block.',
       ),
     );
   });

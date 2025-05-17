@@ -501,6 +501,164 @@ describe('TCPDecoder', () => {
       const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
       expect(result.data.flags.ece).toBe(true);
     });
+it('should decode a TCP segment with all flags set', () => {
+      // Data Offset: 5 (0x5000), Reserved: 0, All Flags: (0x01FF) -> 0x51FF
+      const buffer = Buffer.from([
+        0x12, 0x34, // Source Port
+        0x56, 0x78, // Destination Port
+        0x00, 0x00, 0x00, 0x01, // Sequence Number
+        0x00, 0x00, 0x00, 0x02, // Acknowledgment Number
+        0x51, 0xFF, // Data Offset (5), Reserved (0), All Flags
+        0x7F, 0xFF, // Window Size
+        0xAB, 0xCD, // Checksum
+        0x00, 0x0F, // Urgent Pointer (relevant if URG is set)
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.data.flags).toEqual({
+        ns: true, cwr: true, ece: true, urg: true,
+        ack: true, psh: true, rst: true, syn: true, fin: true,
+      });
+      expect(result.data.dataOffset).toBe(5);
+      expect(result.data.reserved).toBe(0);
+      expect(result.data.urgentPointer).toBe(0x0F);
+      expect(result.headerLength).toBe(20);
+      expect(result.payload.length).toBe(0);
+    });
+
+    it('should decode a TCP segment with no payload', () => {
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x50, 0x02, 0xFF, 0xFF,
+        0xAB, 0xCD, 0x00, 0x00,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(20);
+      expect(result.data.dataOffset).toBe(5);
+      expect(result.payload).toBeDefined();
+      expect(result.payload.length).toBe(0);
+      expect(result.data.options).toBeUndefined();
+    });
+
+    it('should decode urgentPointer even if URG flag is not set', () => {
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x50, 0x02, // Flags (SYN only)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x0F, // Urgent Pointer 15
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.data.flags.urg).toBe(false);
+      expect(result.data.urgentPointer).toBe(15);
+    });
+
+    it('should decode TCP options: Window Scale with NOP padding', () => {
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x60, 0x02, // Data Offset (6)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+        0x03, 0x03, 0x07, 0x01, // Window Scale (7), NOP
+        0xDE, 0xAD,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(24);
+      expect(result.data.options).toEqual(Buffer.from([0x03, 0x03, 0x07, 0x01]));
+      expect(result.payload).toEqual(Buffer.from([0xDE, 0xAD]));
+    });
+
+    it('should decode TCP options: SACK Permitted with NOP padding', () => {
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x60, 0x02, // Data Offset (6)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+        0x04, 0x02, 0x01, 0x01, // SACK Permitted, NOP, NOP
+        0xDE, 0xAD,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(24);
+      expect(result.data.options).toEqual(Buffer.from([0x04, 0x02, 0x01, 0x01]));
+      expect(result.payload).toEqual(Buffer.from([0xDE, 0xAD]));
+    });
+
+    it('should decode TCP options: Timestamps with NOP padding', () => {
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x80, 0x02, // Data Offset (8)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+        0x08, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01, 0x01, // Timestamps, NOP, NOP
+        0xDE, 0xAD,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(32);
+      expect(result.data.options).toEqual(
+        Buffer.from([0x08, 0x0A, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01, 0x01]),
+      );
+      expect(result.payload).toEqual(Buffer.from([0xDE, 0xAD]));
+    });
+
+    it('should decode TCP with multiple options (MSS, SACK Permitted, Window Scale, Timestamps) and padding', () => {
+      const optionsBuffer = Buffer.from([
+        0x02, 0x04, 0x05, 0xB4, // MSS
+        0x04, 0x02,             // SACK Permitted
+        0x03, 0x03, 0x0A,       // Window Scale
+        0x08, 0x0A, 0x00,0x00,0x00,0x01, 0x00,0x00,0x00,0x02, // Timestamps
+        0x01,                   // NOP padding
+      ]); // Total 20 bytes options
+      const headerNoOptions = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0xA0, 0x02, // Data Offset (10)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+      ]);
+      const payloadBuffer = Buffer.from([0xDE, 0xAD]);
+      const buffer = Buffer.concat([headerNoOptions, optionsBuffer, payloadBuffer]);
+
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(40);
+      expect(result.data.options).toEqual(optionsBuffer);
+      expect(result.payload).toEqual(payloadBuffer);
+    });
+
+    it('should decode TCP options: EOL and padding', () => {
+      const optionsData = Buffer.from([0x02, 0x04, 0x05, 0xB4, 0x00, 0x01, 0x01, 0x01]); // MSS, EOL, NOP, NOP, NOP
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0x70, 0x02, // Data Offset (7)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+        ...optionsData,
+        0xDE, 0xAD,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(28);
+      expect(result.data.options).toEqual(optionsData);
+      expect(result.payload).toEqual(Buffer.from([0xDE, 0xAD]));
+    });
+
+    it('should decode TCP with maximum data offset (options fill 40 bytes)', () => {
+      const fortyNops = Buffer.alloc(40, 0x01);
+      const buffer = Buffer.from([
+        0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x03, 0xE8,
+        0x00, 0x00, 0x00, 0x00, 0xF0, 0x02, // Data Offset (15)
+        0xFF, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+        ...fortyNops,
+        0xDE, 0xAD,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.headerLength).toBe(60);
+      expect(result.data.options).toEqual(fortyNops);
+      expect(result.payload).toEqual(Buffer.from([0xDE, 0xAD]));
+    });
+
+    it('should decode a TCP segment with non-zero reserved bits', () => {
+      const buffer = Buffer.from([
+        0x12, 0x34, 0x56, 0x78, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x02, 0x5E, 0x02, // Data Offset (5), Reserved (7), Flags (SYN)
+        0x7F, 0xFF, 0xAB, 0xCD, 0x00, 0x00,
+      ]);
+      const result = decoder.decode(buffer) as DecoderOutputLayer<TCPLayer>;
+      expect(result.data.dataOffset).toBe(5);
+      expect(result.data.reserved).toBe(7);
+      expect(result.data.flags.syn).toBe(true);
+      expect(result.headerLength).toBe(20);
+      expect(result.payload.length).toBe(0);
+    });
 
     // TODO: Add tests for checksum validation (will require IP pseudo-header context)
   });

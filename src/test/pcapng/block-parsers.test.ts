@@ -230,6 +230,29 @@ describe('PCAPng Block Parsers', () => {
       expect(idb.options[0]).toEqual({ code: 2, length: 4, value: Buffer.from('eth0') });
       expect(idb.block_type).toBe(0x00000001);
     });
+
+    it('should correctly parse a valid IDB body (little-endian)', () => {
+      const blockBody = Buffer.from([
+        0x01, 0x00, // LinkType (Ethernet LE)
+        0x00, 0x00, // Reserved (LE)
+        0xdc, 0x05, 0x00, 0x00, // SnapLen (1500 LE)
+        // Options: if_tsresol (code 9, len 1, value 6), padded
+        0x09, 0x00, // code
+        0x01, 0x00, // len
+        0x06,       // value (microseconds)
+        0x00, 0x00, 0x00, // padding
+        0x00, 0x00, 0x00, 0x00, // opt_endofopt
+      ]);
+      const isBigEndian = false;
+      const idb = parseInterfaceDescriptionBlock(blockBody, isBigEndian);
+
+      expect(idb.linktype).toBe(1);
+      expect(idb.reserved).toBe(0);
+      expect(idb.snaplen).toBe(1500);
+      expect(idb.options).toHaveLength(1);
+      expect(idb.options[0]).toEqual({ code: 9, length: 1, value: Buffer.from([6]) });
+      expect(idb.block_type).toBe(0x00000001);
+    });
   });
 
   describe('parseEnhancedPacketBlock (EPB)', () => {

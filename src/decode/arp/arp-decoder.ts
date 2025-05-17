@@ -2,7 +2,13 @@ import { Decoder, DecoderOutputLayer } from '../decoder';
 import { BufferOutOfBoundsError } from '../../errors';
 import { readUint16BE, readUint8 } from '../../utils/byte-readers';
 import { formatMacAddress } from '../../utils/mac-address-formatter';
-import { formatIPv4 } from '../../utils/ip-formatters'; // Assuming IPv4 for now
+import { formatIPv4 } from '../../utils/ip-formatters';
+
+// ARP Protocol Constants
+const ETHERNET_HARDWARE_TYPE = 1;
+const IPV4_PROTOCOL_TYPE = 0x0800; // 2048
+const MAC_ADDRESS_LENGTH = 6;
+const IPV4_ADDRESS_LENGTH = 4;
 
 /**
  * Represents the decoded ARP layer data.
@@ -79,34 +85,50 @@ export class ARPDecoder implements Decoder<ARPLayer> {
       );
     }
  
+    let senderMac: string;
     const senderMacBuffer = buffer.subarray(offset, offset + hardwareAddressLength);
-    // DEBUG: Check buffer length
-    // console.log(`ARPDecoder: senderMacBuffer length: ${senderMacBuffer.length}, hardwareAddressLength: ${hardwareAddressLength}`);
-    const senderMac = formatMacAddress(senderMacBuffer);
+    if (
+      hardwareType === ETHERNET_HARDWARE_TYPE &&
+      hardwareAddressLength === MAC_ADDRESS_LENGTH
+    ) {
+      senderMac = formatMacAddress(senderMacBuffer);
+    } else {
+      senderMac = senderMacBuffer.toString('hex');
+    }
     offset += hardwareAddressLength;
- 
+
     const senderIpBuffer = buffer.subarray(offset, offset + protocolAddressLength);
-    let senderIp = 'N/A';
-    if (protocolAddressLength === 4 && protocolType === 0x0800) {
-      // IPv4
+    let senderIp: string;
+    if (
+      protocolType === IPV4_PROTOCOL_TYPE &&
+      protocolAddressLength === IPV4_ADDRESS_LENGTH
+    ) {
       senderIp = formatIPv4(senderIpBuffer);
     } else {
-      // Handle other protocol address types or log a warning
       senderIp = senderIpBuffer.toString('hex'); // Fallback to hex
     }
     offset += protocolAddressLength;
 
+    let targetMac: string;
     const targetMacBuffer = buffer.subarray(offset, offset + hardwareAddressLength);
-    const targetMac = formatMacAddress(targetMacBuffer);
+    if (
+      hardwareType === ETHERNET_HARDWARE_TYPE &&
+      hardwareAddressLength === MAC_ADDRESS_LENGTH
+    ) {
+      targetMac = formatMacAddress(targetMacBuffer);
+    } else {
+      targetMac = targetMacBuffer.toString('hex');
+    }
     offset += hardwareAddressLength;
 
     const targetIpBuffer = buffer.subarray(offset, offset + protocolAddressLength);
-    let targetIp = 'N/A';
-    if (protocolAddressLength === 4 && protocolType === 0x0800) {
-      // IPv4
+    let targetIp: string;
+    if (
+      protocolType === IPV4_PROTOCOL_TYPE &&
+      protocolAddressLength === IPV4_ADDRESS_LENGTH
+    ) {
       targetIp = formatIPv4(targetIpBuffer);
     } else {
-      // Handle other protocol address types or log a warning
       targetIp = targetIpBuffer.toString('hex'); // Fallback to hex
     }
     offset += protocolAddressLength;

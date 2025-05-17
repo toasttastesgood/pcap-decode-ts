@@ -44,18 +44,41 @@ export class HTTP1Decoder implements Decoder<HTTP1Layer> {
     const firstLine = lines.shift() as string; // We've ensured lines[0] exists and shift won't return undefined.
  
     const headers: Record<string, string> = {};
+    let lastHeaderName: string | null = null;
     for (const line of lines) {
-      const separatorIndex = line.indexOf(':');
-      if (separatorIndex > 0) {
-        const name = line.substring(0, separatorIndex).trim();
-        const value = line.substring(separatorIndex + 1).trim();
-        // Handle multi-value headers by appending, though simple overwrite for now
-        headers[name.toLowerCase()] = value;
-      } else if (line.trim() !== '') {
-        // Invalid header line
-        throw new PcapDecodingError(
-          `Invalid HTTP header line (missing colon separator): "${line}"`,
-        );
+      if (line.startsWith(' ') || line.startsWith('\t')) {
+        // Obsolete line folding
+        if (lastHeaderName && headers[lastHeaderName]) {
+          headers[lastHeaderName] += ' ' + line.trim(); // Append with a space
+        } else {
+          // Folded line without a preceding header field. This is malformed.
+          throw new PcapDecodingError(
+            `Invalid HTTP header: Obsolete line folding observed without a preceding valid header field: "${line}"`,
+          );
+        }
+      } else {
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex > 0) {
+          const name = line.substring(0, separatorIndex).trim().toLowerCase();
+          const value = line.substring(separatorIndex + 1).trim();
+          if (headers[name]) {
+            // Simple append for duplicate headers, as per RFC 7230 recommendation for combining.
+            // "a recipient MAY combine multiple header fields with the same field name into one comma-separated list"
+            headers[name] += ', ' + value;
+          } else {
+            headers[name] = value;
+          }
+          lastHeaderName = name;
+        } else if (line.trim() !== '') {
+          // Invalid header line
+          throw new PcapDecodingError(
+            `Invalid HTTP header line (missing colon separator or malformed): "${line}"`,
+          );
+        } else {
+          // Empty line, possibly between header blocks if not for \r\n\r\n, but split should handle this.
+          // Or, an empty line that's not part of folding and not a valid header.
+          lastHeaderName = null; // Reset last header name on non-folded, non-header lines
+        }
       }
     }
 

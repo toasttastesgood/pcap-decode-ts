@@ -185,4 +185,30 @@ describe('Decoder Extensibility E2E', () => {
     const customLayerData = customLayer.data as FixedHeaderProtocolData;
     expect(customLayerData.instanceId).toBe('decoder1_same_priority');
   });
+
+  it('should produce Raw Data layer if custom decoder fails to parse (e.g. wrong magic number)', () => {
+    const registry = new DecoderRegistry();
+    const customDecoder = new FixedHeaderProtocolDecoder();
+    const NUMERIC_MOCK_PROTOCOL_ID_FAIL = 0xabdd; // Unique ID for this test
+
+    registry.registerDecoder(NUMERIC_MOCK_PROTOCOL_ID_FAIL, customDecoder);
+
+    const payloadContent = 'SHOULD_BE_RAW';
+    const packetBuffer = Buffer.alloc(FIXED_HEADER_LENGTH + payloadContent.length);
+    packetBuffer.writeUInt16BE(0xDEAD, 0); // WRONG Magic number
+    packetBuffer.writeUInt8(MOCK_PAYLOAD_PROTOCOL_ID, 2);
+    packetBuffer.writeUInt8(payloadContent.length, 3);
+    packetBuffer.write(payloadContent, FIXED_HEADER_LENGTH);
+
+    const decodedPacket = decodePacket(packetBuffer, NUMERIC_MOCK_PROTOCOL_ID_FAIL, registry);
+
+    // Expecting one layer, which should be 'Raw Data' as the custom decoder failed
+    expect(decodedPacket.layers).toHaveLength(1);
+    const rawLayer = decodedPacket.layers[0];
+    expect(rawLayer.protocolName).toBe('Raw Data');
+    expect(rawLayer.bytes.equals(packetBuffer)).toBe(true);
+    // Check that there's no 'data' or 'payload' field on RawPayloadLayer beyond the base
+    expect(rawLayer).not.toHaveProperty('data');
+    expect(rawLayer).not.toHaveProperty('payload');
+  });
 });

@@ -126,6 +126,26 @@ describe('IPv6Decoder', () => {
     expect(decoded.data.sourceIp).toBe('fe80:0:0:0:202:b3ff:fe1e:8329');
     expect(decoded.data.destinationIp).toBe('ff02:0:0:0:0:0:0:1');
   });
+it('should correctly decode a packet with zero payload length', () => {
+    const header = createIPv6Header(0, 59); // 59 for No Next Header
+    const packet = Buffer.concat([header]); // No payload data
+
+    const decoded = decoder.decode(packet) as DecoderOutputLayer<IPv6Layer>;
+
+    expect(decoded).toBeDefined();
+    expect(decoded.protocolName).toBe('IPv6');
+    expect(decoded.headerLength).toBe(40);
+    expect(decoded.data.version).toBe(6);
+    expect(decoded.data.trafficClass).toBe(0);
+    expect(decoded.data.flowLabel).toBe(0);
+    expect(decoded.data.payloadLength).toBe(0);
+    expect(decoded.data.nextHeader).toBe(59); // No Next Header
+    expect(decoded.data.hopLimit).toBe(64);
+    expect(decoded.data.sourceIp).toBe('2001:db8:85a3:0:0:8a2e:370:7334');
+    expect(decoded.data.destinationIp).toBe('2001:db8:85a3:0:0:8a2e:370:7335');
+    expect(decoded.payload.length).toBe(0);
+    expect(decoder.nextProtocolType(decoded.data)).toBe(59);
+  });
 
   it('should throw BufferOutOfBoundsError if buffer is too small for header', () => {
     const tooSmallBuffer = Buffer.alloc(39); // Less than 40 bytes
@@ -154,6 +174,39 @@ describe('IPv6Decoder', () => {
     expect(() => decoder.decode(packet)).toThrow(
       'Invalid IPv6 version at offset 0: 4. Expected 6.',
     );
+it('should correctly decode various traffic class and flow label values', () => {
+    const payload = Buffer.from([0xaa, 0xbb]);
+    const testCases = [
+      { trafficClass: 0, flowLabel: 0 },
+      { trafficClass: 255, flowLabel: 0xfffff }, // Max values
+      { trafficClass: 10, flowLabel: 12345 },   // Arbitrary values
+      { trafficClass: 0b10101010, flowLabel: 0b10101010101010101010 },
+    ];
+
+    for (const tc of testCases) {
+      const header = createIPv6Header(
+        payload.length,
+        17, // UDP
+        '2001:db8::1',
+        '2001:db8::2',
+        6,
+        tc.trafficClass,
+        tc.flowLabel,
+        32,
+      );
+      const packet = Buffer.concat([header, payload]);
+      const decoded = decoder.decode(packet) as DecoderOutputLayer<IPv6Layer>;
+
+      expect(decoded.data.version).toBe(6);
+      expect(decoded.data.trafficClass).toBe(tc.trafficClass);
+      expect(decoded.data.flowLabel).toBe(tc.flowLabel);
+      expect(decoded.data.payloadLength).toBe(payload.length);
+      expect(decoded.data.nextHeader).toBe(17);
+      expect(decoded.data.hopLimit).toBe(32);
+      expect(decoded.data.sourceIp).toBe('2001:db8:0:0:0:0:0:1');
+      expect(decoded.data.destinationIp).toBe('2001:db8:0:0:0:0:0:2');
+    }
+  });
   });
 
   it('should handle offset correctly', () => {

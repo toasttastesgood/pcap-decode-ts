@@ -3,6 +3,16 @@ import { TCPLayer } from './tcp-layer';
 import { readUint16BE, readUint32BE } from '../../utils/byte-readers';
 import { BufferOutOfBoundsError, PcapDecodingError } from '../../errors';
 
+const TCP_FLAG_NS = 0x0100;
+const TCP_FLAG_CWR = 0x0080;
+const TCP_FLAG_ECE = 0x0040;
+const TCP_FLAG_URG = 0x0020;
+const TCP_FLAG_ACK = 0x0010;
+const TCP_FLAG_PSH = 0x0008;
+const TCP_FLAG_RST = 0x0004;
+const TCP_FLAG_SYN = 0x0002;
+const TCP_FLAG_FIN = 0x0001;
+
 /**
  * Decodes TCP (Transmission Control Protocol) packets.
  */
@@ -36,15 +46,15 @@ export class TCPDecoder implements Decoder<TCPLayer> {
     const flagsByte = dataOffsetReservedFlags & 0x01ff; // Last 9 bits for flags
 
     const flags = {
-      ns: (flagsByte & 0x0100) !== 0, // Bit 0 (from the 9 flag bits, or bit 8 of the 16-bit field if counting from right)
-      cwr: (flagsByte & 0x0080) !== 0, // Bit 1
-      ece: (flagsByte & 0x0040) !== 0, // Bit 2
-      urg: (flagsByte & 0x0020) !== 0, // Bit 3
-      ack: (flagsByte & 0x0010) !== 0, // Bit 4
-      psh: (flagsByte & 0x0008) !== 0, // Bit 5
-      rst: (flagsByte & 0x0004) !== 0, // Bit 6
-      syn: (flagsByte & 0x0002) !== 0, // Bit 7
-      fin: (flagsByte & 0x0001) !== 0, // Bit 8
+      ns: (flagsByte & TCP_FLAG_NS) !== 0,
+      cwr: (flagsByte & TCP_FLAG_CWR) !== 0,
+      ece: (flagsByte & TCP_FLAG_ECE) !== 0,
+      urg: (flagsByte & TCP_FLAG_URG) !== 0,
+      ack: (flagsByte & TCP_FLAG_ACK) !== 0,
+      psh: (flagsByte & TCP_FLAG_PSH) !== 0,
+      rst: (flagsByte & TCP_FLAG_RST) !== 0,
+      syn: (flagsByte & TCP_FLAG_SYN) !== 0,
+      fin: (flagsByte & TCP_FLAG_FIN) !== 0,
     };
 
     const windowSize = readUint16BE(buffer, 14);

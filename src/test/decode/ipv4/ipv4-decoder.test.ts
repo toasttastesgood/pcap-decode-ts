@@ -218,6 +218,105 @@ describe('IPv4Decoder', () => {
     });
   });
 
+describe('Detailed Field Validation', () => {
+    it('should correctly parse various DSCP and ECN values', () => {
+      const testCases = [
+        { dscp: 0, ecn: 0, byteValue: 0x00 }, // Standard
+        { dscp: 0b101110, ecn: 0b00, byteValue: 0xb8 }, // DSCP EF (46), ECN Not-ECT
+        { dscp: 0b001010, ecn: 0b01, byteValue: 0x29 }, // DSCP AF11 (10), ECN ECT(1)
+        { dscp: 0b001110, ecn: 0b10, byteValue: 0x3a }, // DSCP AF13 (14), ECN ECT(0)
+        { dscp: 0b010000, ecn: 0b11, byteValue: 0x43 }, // DSCP CS2 (16), ECN CE
+        { dscp: 0b111111, ecn: 0b11, byteValue: 0xff }, // Max DSCP, Max ECN
+      ];
+
+      testCases.forEach(tc => {
+        const buffer = Buffer.from(minimalValidIPv4Buffer);
+        buffer[1] = tc.byteValue; // Modify the DSCP/ECN byte
+
+        const decoded = decoder.decode(buffer);
+        expect(decoded.data.dscp).toBe(tc.dscp);
+        expect(decoded.data.ecn).toBe(tc.ecn);
+      });
+    });
+
+    it('should correctly parse various TTL values', () => {
+      const testCases = [1, 32, 64, 128, 255];
+      testCases.forEach(ttl => {
+        const buffer = Buffer.from(minimalValidIPv4Buffer);
+        buffer[8] = ttl; // Modify TTL byte
+        const decoded = decoder.decode(buffer);
+        expect(decoded.data.ttl).toBe(ttl);
+      });
+    });
+
+    it('should correctly parse various Flags values', () => {
+      // Flags are the top 3 bits of the 16-bit word at offset 6
+      // 0x8000 -> Reserved (must be 0) - not testing this as it's invalid
+      // 0x4000 -> Don't Fragment (DF)
+      // 0x2000 -> More Fragments (MF)
+      const testCases = [
+        { flags: 0b000, fragmentOffset: 0, wordValue: 0x0000 }, // No flags, no offset
+        { flags: 0b010, fragmentOffset: 0, wordValue: 0x4000 }, // DF set
+        { flags: 0b001, fragmentOffset: 0, wordValue: 0x2000 }, // MF set
+        { flags: 0b001, fragmentOffset: 100, wordValue: 0x2000 | 100 }, // MF set with offset
+        { flags: 0b000, fragmentOffset: 8191, wordValue: 0x1FFF }, // Max offset (13 bits)
+        { flags: 0b010, fragmentOffset: 1234, wordValue: 0x4000 | 1234 }, // DF with offset (offset should be 0 if DF is set, but parser should still parse)
+      ];
+
+      testCases.forEach(tc => {
+        const buffer = Buffer.from(minimalValidIPv4Buffer);
+        buffer.writeUInt16BE(tc.wordValue, 6); // Modify Flags/Fragment Offset word
+        const decoded = decoder.decode(buffer);
+        expect(decoded.data.flags).toBe(tc.flags);
+        expect(decoded.data.fragmentOffset).toBe(tc.fragmentOffset);
+      });
+    });
+it('should correctly extract IPv4 options of various lengths', () => {
+      const baseHeader = [
+        // 0x40, // Version 4, IHL will be modified
+        0x00, // DSCP 0, ECN 0
+        0x00, 0x00, // Total Length (will be modified)
+        0x12, 0x34, // Identification
+        0x00, 0x00, // Flags 0, Fragment Offset 0
+        0x40, // TTL 64
+        0x06, // Protocol TCP (6)
+        0xab, 0xcd, // Header Checksum (dummy)
+        192, 168, 0, 1, // Source IP
+        10, 0, 0, 1, // Destination IP
+      ];
+
+      const testCases = [
+        { ihl: 6, options: [0x01, 0x01, 0x01, 0x01], description: '4 bytes of NOPs' }, // 24 byte header
+        { ihl: 7, options: [0x94, 0x04, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01], description: 'Router Alert (RFC 2113) + 4 NOPs for padding' }, // 28 byte header
+        { ihl: 15, options: Array(40).fill(0x01), description: 'Max options length (40 bytes of NOPs)'} // 60 byte header
+      ];
+
+      testCases.forEach(tc => {
+        const optionsBuffer = Buffer.from(tc.options);
+        const headerLength = tc.ihl * 4;
+        const totalLength = headerLength; // Assuming no payload for these option tests
+
+        const buffer = Buffer.alloc(totalLength);
+        buffer[0] = (0x4 << 4) | tc.ihl; // Set Version and IHL
+        Buffer.from(baseHeader).copy(buffer, 1, 0, 19); // Copy the rest of the base header (excluding first byte)
+        buffer.writeUInt16BE(totalLength, 2); // Set Total Length
+        optionsBuffer.copy(buffer, 20); // Copy options
+
+        const decoded = decoder.decode(buffer);
+        expect(decoded.data.ihl).toBe(tc.ihl);
+        expect(decoded.headerLength).toBe(headerLength);
+        expect(decoded.data.options).toBeDefined();
+        expect(decoded.data.options).toEqual(optionsBuffer);
+        expect(decoded.payload.length).toBe(0);
+      });
+    });
+
+    it('should return undefined for options if IHL is 5', () => {
+      const decoded = decoder.decode(minimalValidIPv4Buffer); // IHL is 5
+      expect(decoded.data.ihl).toBe(5);
+      expect(decoded.data.options).toBeUndefined();
+    });
+  });
   describe('Error Handling', () => {
     it('should throw BufferOutOfBoundsError for buffer smaller than minimal header size', () => {
       const tooSmallBuffer = Buffer.from([0x45, 0x00, 0x00, 0x13]); // Only 4 bytes
@@ -375,80 +474,39 @@ describe('IPv4Decoder', () => {
       );
     });
 
-    // Test for IHL < 5 (invalid, minimum header size is 20 bytes / 5 words)
-    it('should throw PcapDecodingError for IHL < 5 because headerLength would be < MIN_IPV4_HEADER_SIZE', () => {
-      // Given the current decoder logic, an IHL < 5 might not throw an error *unless*
-      // it leads to an out-of-bounds read later *or* if MIN_IPV4_HEADER_SIZE check fails.
-      // If the buffer is, say, 16 bytes and IHL is 4, MIN_IPV4_HEADER_SIZE check will throw.
-      // If buffer is 20 bytes and IHL is 4, MIN_IPV4_HEADER_SIZE check passes. headerLength = 16.
-      // It will then proceed. This is a subtle case.
-      // A direct check `if (ihl < 5) throw new Error("Invalid IHL")` would be more robust.
-      // For now, let's test a case where IHL is too small AND buffer is also too small for what IHL implies for a valid header.
-      const smallBufferAndSmallIhl = Buffer.alloc(16); // 16 byte buffer
-      smallBufferAndSmallIhl[0] = 0x44; // IHL 4 (16 bytes)
-      smallBufferAndSmallIhl[2] = 0x00;
-      smallBufferAndSmallIhl[3] = 0x10; // Total length 16
-      // This will be caught by the MIN_IPV4_HEADER_SIZE check.
-      expect(() => decoder.decode(smallBufferAndSmallIhl)).toThrow(BufferOutOfBoundsError);
-      expect(() => decoder.decode(smallBufferAndSmallIhl)).toThrow(
-        'Buffer too small for a minimal IPv4 header at offset 0. Expected 20 bytes, got 16.',
+it('should throw PcapDecodingError for IHL < 5 (e.g., 4) even if buffer is large enough for minimal header', () => {
+      // Buffer is 20 bytes (MIN_IPV4_HEADER_SIZE), IHL is 4 (implies 16-byte header)
+      // Version 4, IHL 4
+      // Total Length: 20 (to match buffer size and avoid other errors like negative payload)
+      // Other fields are minimal/dummy to ensure the IHL check is the one failing.
+      const ihlTooSmallBuffer = Buffer.from([
+        0x44, // Version 4, IHL 4
+        0x00, // DSCP 0, ECN 0
+        0x00,
+        0x14, // Total Length 20
+        0x12,
+        0x34, // Identification
+        0x00,
+        0x00, // Flags 0, Fragment Offset 0
+        0x40, // TTL 64
+        0x06, // Protocol TCP (6)
+        0xab,
+        0xcd, // Header Checksum (dummy)
+        192,
+        168,
+        0,
+        1, // Source IP
+        10,
+        0,
+        0,
+        1, // Destination IP
+      ]);
+
+      expect(() => decoder.decode(ihlTooSmallBuffer)).toThrow(PcapDecodingError);
+      expect(() => decoder.decode(ihlTooSmallBuffer)).toThrow(
+        'Invalid IPv4 IHL at offset 0: 4. Minimum value is 5 (for a 20-byte header).',
       );
-
-      // To truly test IHL < 5 as an independent error, the decoder would need an explicit check.
-      // The prompt says "invalid IHL", which implies IHL < 5 should be an error.
-      // The PcapDecodingError for IHL < 5 is not directly implemented, but results from other checks.
-      // The primary guard is MIN_IPV4_HEADER_SIZE. If IHL is too small, it implies headerLength < 20.
-      // If the buffer itself is also < 20, the BufferOutOfBoundsError on MIN_IPV4_HEADER_SIZE is hit first.
-      // If buffer is >= 20, but IHL makes headerLength < 20, this is an invalid state.
-      // The current decoder doesn't have a specific "IHL < 5" error, but relies on other checks.
-      // For example, if IHL = 4 (16 bytes) and buffer is 20 bytes:
-      // 1. MIN_IPV4_HEADER_SIZE check (20 bytes) passes.
-      // 2. headerLength = 16.
-      // 3. `buffer.length < offset + headerLength` (20 < 0 + 16) is false.
-      // 4. It would proceed. This is where an explicit `if (ihl < 5)` check in the decoder would be beneficial.
-      // For now, the test relies on the BufferOutOfBoundsError for minimal header size.
-      // A more direct test for "Invalid IHL value" would require modifying the decoder.
-      // The task is to test existing parser/decoder error handling.
-      // The `PcapDecodingError` for negative payload length also covers cases where IHL is too large relative to totalLength.
-      // An IHL that's too small (e.g. 4) on a buffer that's large enough (e.g. 20 bytes)
-      // doesn't currently throw a specific "IHL too small" error, but might lead to incorrect parsing.
-      // The most direct error for "IHL < 5" is when the buffer itself is too small for a valid 20-byte header.
     });
 
-    it('should throw PcapDecodingError if IHL is < 5 (e.g. 4) even if buffer is large enough (e.g. 20 bytes)', () => {
-      // This test assumes that an IHL < 5 should be an error regardless of buffer size,
-      // as it implies a header smaller than the 20-byte minimum.
-      // The current decoder does not have an explicit check for `ihl < 5`.
-      // It checks `buffer.length < offset + MIN_IPV4_HEADER_SIZE` first.
-      // If buffer is 20 bytes, and IHL is 4 (headerLength = 16), the first check passes.
-      // The second check `buffer.length < offset + headerLength` (20 < 0 + 16) is false.
-      // So, it would proceed. This test will currently fail as the decoder doesn't throw for this specific case.
-      // To make this pass, the decoder would need: if (ihl < 5) throw new PcapDecodingError("IHL too small");
-      // For now, we test the existing behavior.
-      // This scenario is more about a logical inconsistency (IHL implies < 20B header)
-      // rather than an immediate out-of-bounds read if the buffer is sufficient for those 16 bytes.
-      // The task is about graceful handling of malformed data. An IHL < 5 is malformed.
-      // The closest error the current decoder *might* throw if IHL is too small,
-      // is if it leads to an out-of-bounds read when accessing IP addresses, assuming IHL was, e.g., 2.
-      // If IHL is 4, source/dest IPs are still within the 16 bytes.
-      // This test is more of a "should ideally throw" for logical invalidity.
-      // Let's adjust to test what *does* happen.
-      // If IHL is 4, headerLength is 16. Payload offset is 16.
-      // If totalLength is also 16 (or more), it will try to read payload from byte 16.
-      // Current decoder does not throw for IHL=4 if buffer is sufficient for 16 bytes and TotalLength matches.
-      // It would parse a 16-byte header. This is arguably incorrect as IPv4 min header is 20.
-      // The MIN_IPV4_HEADER_SIZE check (20 bytes) is at the beginning.
-      // If ihl4Buffer was < 20 bytes, that would throw.
-      // Since ihl4Buffer is 20 bytes, it passes the first check.
-      // Then headerLength = 4*4 = 16.
-      // totalLength = 16. payloadLength = 16-16 = 0. This seems to parse.
-      // This highlights a need for an explicit `if (ihl < 5)` check in the decoder.
-      // For now, this test cannot assert a throw for "IHL < 5" directly.
-      // We can only test that if IHL is < 5 AND the buffer is < 20 bytes, it throws the MIN_IPV4_HEADER_SIZE error.
-      // That is already covered by the `smallBufferAndSmallIhl` test case.
-      // No new assertion here without modifying the decoder.
-      // Let's assume the current structure will lead to an error if IHL is fundamentally too small.
-      // The `MIN_IPV4_HEADER_SIZE` check is the primary guard here.
-    });
   });
 });

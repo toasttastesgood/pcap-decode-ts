@@ -46,6 +46,15 @@ export class IPv4Decoder implements Decoder<IPv4Layer> {
       );
     }
 
+    // RFC 791: IHL is the length of the internet header in 32 bit words,
+    // and thus points to the beginning of the data.
+    // Minimum value for a correct header is 5 (i.e., 5 * 4 = 20 bytes).
+    if (ihl < 5) {
+      throw new PcapDecodingError(
+        `Invalid IPv4 IHL at offset ${offset}: ${ihl}. Minimum value is 5 (for a 20-byte header).`,
+      );
+    }
+
     const headerLength = ihl * 4;
     if (buffer.length < offset + headerLength) {
       throw new BufferOutOfBoundsError(

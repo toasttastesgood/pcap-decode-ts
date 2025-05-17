@@ -109,11 +109,21 @@ describe('Ethernet2Decoder', () => {
       expect(result.payload.toString('hex')).toBe('cafe');
     });
 
-    it('should throw BufferOutOfBoundsError if buffer is too small', () => {
+    it('should throw BufferOutOfBoundsError if buffer is too small (e.g. 6 bytes)', () => {
       const buffer = Buffer.from([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]); // Only 6 bytes
       expect(() => decoder.decode(buffer)).toThrow(BufferOutOfBoundsError);
       expect(() => decoder.decode(buffer)).toThrow(
         'Buffer too small for Ethernet II header. Expected 14 bytes, got 6.',
+      );
+    });
+
+    it('should throw BufferOutOfBoundsError if buffer is 1 byte short of header (13 bytes)', () => {
+      const buffer = Buffer.from([
+        0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x08,
+      ]); // 13 bytes
+      expect(() => decoder.decode(buffer)).toThrow(BufferOutOfBoundsError);
+      expect(() => decoder.decode(buffer)).toThrow(
+        'Buffer too small for Ethernet II header. Expected 14 bytes, got 13.',
       );
     });
 
@@ -125,6 +135,41 @@ describe('Ethernet2Decoder', () => {
       expect(result.data.etherType).toBe(0x0800);
       expect(result.payload.length).toBe(0);
       expect(result.payload.toString('hex')).toBe('');
+    });
+
+    it('should correctly decode a valid Ethernet II frame for Wake-on-LAN (WoL)', () => {
+      // EtherType: 0x0842 (WoL)
+      const buffer = Buffer.from([
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Destination MAC (Broadcast)
+        0x1a, 0x2b, 0x3c, 0x4d, 0x5e, 0x6f, // Source MAC
+        0x08, 0x42,                         // EtherType (WoL)
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // Payload (example WoL magic packet part)
+      ]);
+
+      const result = decoder.decode(buffer) as DecoderOutputLayer<Ethernet2Layer>;
+
+      expect(result.data.destinationMac).toBe('ff:ff:ff:ff:ff:ff');
+      expect(result.data.sourceMac).toBe('1a:2b:3c:4d:5e:6f');
+      expect(result.data.etherType).toBe(0x0842);
+      expect(result.payload.toString('hex')).toBe('010203040506');
+    });
+
+    it('should correctly decode a valid Ethernet II frame for LLDP', () => {
+      // EtherType: 0x88CC (LLDP)
+      // LLDP MAC: 01:80:c2:00:00:0e
+      const buffer = Buffer.from([
+        0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e, // Destination MAC (LLDP Multicast)
+        0x11, 0x22, 0x33, 0xaa, 0xbb, 0xcc, // Source MAC
+        0x88, 0xcc,                         // EtherType (LLDP)
+        0x02, 0x07, 0x04, 0x00, 0x11, 0x22, 0x33, // Payload (example LLDP data)
+      ]);
+
+      const result = decoder.decode(buffer) as DecoderOutputLayer<Ethernet2Layer>;
+
+      expect(result.data.destinationMac).toBe('01:80:c2:00:00:0e');
+      expect(result.data.sourceMac).toBe('11:22:33:aa:bb:cc');
+      expect(result.data.etherType).toBe(0x88cc);
+      expect(result.payload.toString('hex')).toBe('02070400112233');
     });
   });
 

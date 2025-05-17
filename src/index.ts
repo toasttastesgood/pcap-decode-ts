@@ -37,7 +37,7 @@ export * from './decode/http/http1-layer';
 export * from './decode/icmpv4/icmpv4-decoder';
 export * from './decode/icmpv4/icmpv4-layer';
 export * from './decode/icmpv6/icmpv6-decoder';
-// export * from './decode/icmpv6/icmpv6-layer'; // No separate layer file, ICMPv6Layer is in icmpv6-decoder.ts
+export * from './decode/icmpv6/icmpv6-layer';
 export * from './decode/ipv4/ipv4-decoder';
 export * from './decode/ipv4/ipv4-layer';
 export * from './decode/ipv6/ipv6-decoder';

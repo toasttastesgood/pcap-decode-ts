@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Buffer } from 'buffer';
 import { iteratePcapPackets, PcapPacket } from '../../pcap/pcap-iterator';
-import { PcapError } from '../../errors';
+import { PcapError, PcapParsingError } from '../../errors';
+import * as logger from '../../utils/logger';
 
 // Helper function to create a Buffer from a hex string
 const hexToBuffer = (hex: string): Buffer => Buffer.from(hex.replace(/\s/g, ''), 'hex');
@@ -144,44 +145,70 @@ describe('iteratePcapPackets', () => {
     }
   });
 
-  it('should throw PcapError for a truncated file after global header (not enough for packet header)', async () => {
+  it('should yield no packets and log warning for a truncated file after global header (not enough for packet header)', async () => {
+    const logWarningSpy = vi.spyOn(logger, 'logWarning');
     const pcapBuffer = hexToBuffer(defaultGlobalHeaderLE + '01 02 03 04'); // Global header + 4 bytes (not 16)
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const packet of iteratePcapPackets(pcapBuffer)) {
-        // Should not reach here
-      }
-      throw new Error('Should have thrown PcapError for truncated packet header');
-    } catch (e) {
-      expect(e).toBeInstanceOf(PcapError);
-      expect((e as PcapError).message).toContain(
-        'Truncated PCAP data: expected 16 bytes for packet header',
-      );
+    const iteratedPackets: PcapPacket[] = [];
+    for await (const packet of iteratePcapPackets(pcapBuffer)) {
+      iteratedPackets.push(packet);
     }
+    expect(iteratedPackets.length).toBe(0);
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Truncated PCAP data at offset 24: expected 16 bytes for packet header, got 4 bytes. Stopping iteration.',
+      ),
+    );
+    logWarningSpy.mockRestore();
   });
 
-  it('should throw PcapError for a truncated file mid-packet (not enough for packet data)', async () => {
+  it('should skip a corrupted packet (insufficient data for incl_len) and log warning, then process subsequent valid packets', async () => {
+    const logWarningSpy = vi.spyOn(logger, 'logWarning');
     let pcapHex = defaultGlobalHeaderLE;
-    // Packet header: ts_sec=1, ts_usec=1, incl_len=10, orig_len=10
-    pcapHex += ' 01000000 01000000 0a000000 0a000000';
-    // Packet data: only 5 bytes instead of 10
-    pcapHex += ' 0102030405';
-    const pcapBuffer = hexToBuffer(pcapHex);
+    // Corrupted Packet 1: incl_len=10, but only 5 bytes of data provided
+    pcapHex += ' 01000000 01000000 0a000000 0a000000'; // ts_sec, ts_usec, incl_len=10, orig_len=10
+    pcapHex += ' 0102030405'; // Only 5 bytes of data
 
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const packet of iteratePcapPackets(pcapBuffer)) {
-        // Should not reach here
-      }
-      throw new Error('Should have thrown PcapError for truncated packet data');
-    } catch (e) {
-      expect(e).toBeInstanceOf(PcapError);
-      expect((e as PcapError).message).toContain('Truncated packet data at offset');
-      expect((e as PcapError).message).toContain('expected 10 bytes for packet data');
+    // Valid Packet 2
+    const validPacketData = {
+      ts_sec: 1600000002,
+      ts_usec: 300,
+      incl_len: 2,
+      orig_len: 2,
+      data: 'BEEF',
+    };
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.ts_sec]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.ts_usec]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.incl_len]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.orig_len]).buffer).toString('hex')} `;
+    pcapHex += ` ${validPacketData.data} `;
+
+    const pcapBuffer = hexToBuffer(pcapHex);
+    const iteratedPackets: PcapPacket[] = [];
+    for await (const packet of iteratePcapPackets(pcapBuffer)) {
+      iteratedPackets.push(packet);
     }
+
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping corrupted PCAP packet at offset 24:'),
+    );
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Insufficient buffer size to read packet data at offset 40. Need 10 bytes for data, got 5.',
+      ),
+    );
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Attempting to advance 16 bytes to find next packet.'),
+    );
+
+    expect(iteratedPackets.length).toBe(1); // Should have skipped the first and processed the second
+    expect(iteratedPackets[0].header.ts_sec).toBe(validPacketData.ts_sec);
+    expect(iteratedPackets[0].header.incl_len).toBe(validPacketData.incl_len);
+    expect(iteratedPackets[0].packetData.toString('hex').toUpperCase()).toBe(validPacketData.data);
+
+    logWarningSpy.mockRestore();
   });
 
-  it('should throw PcapError if parsePcapGlobalHeader returns null (simulating bad magic number or other critical failure)', async () => {
+  it('should throw PcapError if parsePcapGlobalHeader throws (e.g. bad magic number)', async () => {
     // Create a buffer with an invalid magic number that parsePcapGlobalHeader would reject
     const invalidGlobalHeader =
       '00 00 00 00 02 00 04 00 00 00 00 00 00 00 00 00 ff ff 00 00 01 00 00 00';
@@ -189,20 +216,77 @@ describe('iteratePcapPackets', () => {
 
     // Mock or ensure parsePcapGlobalHeader throws/returns null for this.
     // The actual parsePcapGlobalHeader should throw PcapError for invalid magic number.
-    // This test verifies iteratePcapPackets handles the case where global header parsing fails.
-    try {
+    // This test verifies iteratePcapPackets correctly propagates errors from parsePcapGlobalHeader.
+    await expect(async () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const packet of iteratePcapPackets(pcapBuffer)) {
         // Should not reach here
       }
-      throw new Error('Should have thrown PcapError due to global header parsing failure');
+    }).rejects.toThrow(PcapError); // Or more specifically InvalidFileFormatError
+
+    try {
+      for await (const packet of iteratePcapPackets(pcapBuffer)) {}
     } catch (e) {
-      expect(e).toBeInstanceOf(PcapError);
-      // The error message might come from parsePcapGlobalHeader itself or the iterator's check.
-      // Example: "Invalid PCAP magic number" or "Failed to parse PCAP global header."
-      expect((e as PcapError).message).toMatch(
-        /Invalid PCAP magic number|Failed to parse PCAP global header/,
-      );
+      expect(e).toBeInstanceOf(PcapError); // PcapError or its subclass InvalidFileFormatError
+      expect((e as PcapError).message).toContain('Invalid magic number');
     }
+  });
+
+  it('should skip a packet if its header is malformed (e.g., not enough bytes for header fields)', async () => {
+    const logWarningSpy = vi.spyOn(logger, 'logWarning');
+    let pcapHex = defaultGlobalHeaderLE;
+
+    // Malformed Packet Header (only 10 bytes instead of 16)
+    pcapHex += ' 01000000 01000000 0a00'; // ts_sec, ts_usec, part of incl_len
+
+    // Valid Packet 2
+    const validPacketData = {
+      ts_sec: 1600000003,
+      ts_usec: 400,
+      incl_len: 3,
+      orig_len: 3,
+      data: 'C0FFEE',
+    };
+    // Add some padding to ensure the valid packet is far enough away if the skip logic is naive
+    pcapHex += ' AABBAABBCCDD'; // Some garbage to ensure the skip logic works
+    const validPacketOffset = hexToBuffer(pcapHex).length;
+
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.ts_sec]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.ts_usec]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.incl_len]).buffer).toString('hex')} `;
+    pcapHex += ` ${Buffer.from(new Uint32Array([validPacketData.orig_len]).buffer).toString('hex')} `;
+    pcapHex += ` ${validPacketData.data} `;
+
+    const pcapBuffer = hexToBuffer(pcapHex);
+    const iteratedPackets: PcapPacket[] = [];
+
+    // Manually calculate the offset of the second (valid) packet for assertion
+    // Global header (24) + malformed part (10) + padding (6) = 40
+    // The iterator tries to read packet header at offset 24. It fails.
+    // It should then advance by 16 bytes (default skip for header error).
+    // New offset = 24 + 16 = 40. This is where the valid packet starts.
+
+    for await (const packet of iteratePcapPackets(pcapBuffer)) {
+      iteratedPackets.push(packet);
+    }
+
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping corrupted PCAP packet at offset 24:'),
+    );
+    // The error message from parsePcapPacketRecord for a short header
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Insufficient buffer size to read packet record header at offset 24. Need 16 bytes, got 10.',
+      ),
+    );
+    expect(logWarningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Attempting to advance 16 bytes to find next packet.'),
+    );
+
+    expect(iteratedPackets.length).toBe(1);
+    expect(iteratedPackets[0].header.ts_sec).toBe(validPacketData.ts_sec);
+    expect(iteratedPackets[0].packetData.toString('hex').toUpperCase()).toBe(validPacketData.data);
+
+    logWarningSpy.mockRestore();
   });
 });

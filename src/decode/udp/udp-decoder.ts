@@ -2,6 +2,8 @@ import { Decoder, DecoderOutputLayer } from '../decoder';
 import { readUint16BE } from '../../utils/byte-readers';
 import { BufferOutOfBoundsError, PcapDecodingError } from '../../errors';
 
+const UDP_HEADER_SIZE = 8;
+
 /**
  * Interface for the decoded UDP layer data.
  */
@@ -30,7 +32,6 @@ export class UDPDecoder implements Decoder<UDPLayer> {
    * @throws BufferOutOfBoundsError if the buffer is too small.
    */
   public decode(buffer: Buffer, _context?: unknown): DecoderOutputLayer<UDPLayer> {
-    const UDP_HEADER_SIZE = 8;
     if (buffer.length < UDP_HEADER_SIZE) {
       throw new BufferOutOfBoundsError(
         `Buffer too small for UDP header. Expected at least ${UDP_HEADER_SIZE} bytes, got ${buffer.length}.`,
@@ -58,12 +59,11 @@ export class UDPDecoder implements Decoder<UDPLayer> {
     // For now, we'll skip it as per the instructions (optional but recommended).
     // If implementing, you'd need context.ipHeader for the pseudo-header.
 
-    const headerBytes = 8;
-    const payload = buffer.subarray(headerBytes, length);
+    const payload = buffer.subarray(UDP_HEADER_SIZE, length);
 
     return {
       protocolName: this.protocolName,
-      headerLength: headerBytes,
+      headerLength: UDP_HEADER_SIZE,
       data: {
         sourcePort,
         destinationPort,

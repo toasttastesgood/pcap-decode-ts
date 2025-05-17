@@ -27,14 +27,9 @@ export async function* iteratePcapPackets(pcapBuffer: Buffer): AsyncIterableIter
     throw new PcapError('PCAP data is too short to contain a global header.');
   }
 
-  const globalHeaderResult = parsePcapGlobalHeader(pcapBuffer);
-  if (!globalHeaderResult) {
-    // This case should ideally be handled by parsePcapGlobalHeader throwing an error
-    // if it can't parse, or returning a more specific error type.
-    // For now, assume if it returns null/undefined, it's an error.
-    throw new PcapError('Failed to parse PCAP global header.');
-  }
-  const globalHeader: PcapGlobalHeader = globalHeaderResult;
+  const globalHeader: PcapGlobalHeader = parsePcapGlobalHeader(pcapBuffer);
+  // parsePcapGlobalHeader will throw an error if parsing fails (e.g., invalid magic number, buffer too small),
+  // so no need to check for a null/undefined result here.
   const isBigEndian = globalHeader.magic_number === 0xa1b2c3d4;
 
   let offset = 24; // Size of the global header

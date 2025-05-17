@@ -231,4 +231,32 @@ describe('parsePcapGlobalHeader', () => {
     expect(header.snaplen).toBe(0xaabbccdd);
     expect(header.network).toBe(0xeeff0011);
   });
+
+  it('should correctly parse thiszone with a negative value (big-endian)', () => {
+    const data = Buffer.from([
+      0xa1, 0xb2, 0xc3, 0xd4, // magic_number
+      0x00, 0x02,             // version_major
+      0x00, 0x04,             // version_minor
+      0xff, 0xff, 0xff, 0xfc, // thiszone = -4 (signed)
+      0x00, 0x00, 0x00, 0x00, // sigfigs
+      0x00, 0x00, 0xff, 0xff, // snaplen
+      0x00, 0x00, 0x00, 0x01, // network
+    ]);
+    const header = parsePcapGlobalHeader(data);
+    expect(header.thiszone).toBe(-4);
+  });
+
+  it('should correctly parse thiszone with a negative value (little-endian)', () => {
+    const data = Buffer.from([
+      0xd4, 0xc3, 0xb2, 0xa1, // magic_number
+      0x02, 0x00,             // version_major
+      0x04, 0x00,             // version_minor
+      0xfc, 0xff, 0xff, 0xff, // thiszone = -4 (signed)
+      0x00, 0x00, 0x00, 0x00, // sigfigs
+      0xff, 0xff, 0x00, 0x00, // snaplen
+      0x01, 0x00, 0x00, 0x00, // network
+    ]);
+    const header = parsePcapGlobalHeader(data);
+    expect(header.thiszone).toBe(-4);
+  });
 });

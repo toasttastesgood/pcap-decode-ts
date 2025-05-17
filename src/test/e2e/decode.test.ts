@@ -18,7 +18,19 @@ import { TCPDecoder } from '../../decode/tcp/tcp-decoder';
 import { UDPDecoder } from '../../decode/udp/udp-decoder';
 import { DNSDecoder } from '../../decode/dns/dns-decoder';
 import { HTTP1Decoder } from '../../decode/http/http1-decoder';
-import type { DecodedPacketLayer } from '../../decode/packet-structures';
+import type {
+  DecodedPacket,
+  DecodedPacketLayer,
+} from '../../decode/packet-structures';
+import type { Ethernet2Layer } from '../../decode/ethernet/ethernet2-decoder'; // Assuming exported from decoder
+import type { IPv4Layer } from '../../decode/ipv4/ipv4-layer';
+import type { TCPLayer } from '../../decode/tcp/tcp-layer';
+import type { UDPLayer } from '../../decode/udp/udp-decoder'; // Assuming exported from decoder
+import type { DNSLayer } from '../../decode/dns/dns-layer';
+  // ARPLayer, // Import if/when an ARP-specific test is added
+  // IPv6Layer, // Import if/when an IPv6-specific test is added
+  // ICMPv4Layer, // Import if/when an ICMPv4-specific test is added
+  // ICMPv6Layer, // Import if/when an ICMPv6-specific test is added
 
 const dataDir = path.join(__dirname, '..', '..', 'test', 'data');
 
@@ -48,10 +60,11 @@ describe('End-to-End Packet Decoding', () => {
       const fileBuffer = fs.readFileSync(filePath);
       const globalHeader = parsePcapGlobalHeader(fileBuffer);
       if (!globalHeader) throw new Error('Could not parse PCAP global header for dns.cap');
+      expect(globalHeader.network).toBe(1); // LINKTYPE_ETHERNET
 
       for await (const packetData of iteratePcapPackets(fileBuffer)) {
         const timestamp = packetData.header.ts_sec + packetData.header.ts_usec / 1_000_000;
-        const decodedPacket = decodePacket(
+        const decodedPacket: DecodedPacket = decodePacket(
           packetData.packetData,
           globalHeader.network, // initialLinkLayerType
           decoderRegistry,
@@ -87,54 +100,234 @@ describe('End-to-End Packet Decoding', () => {
         // This requires knowledge of the specific dns.cap content.
         // For now, we'll check if there are at least 3 layers (e.g., Eth, IP, UDP/TCP)
         // and if the last one could be DNS or Raw Data if DNS parsing fails.
+        // Assuming dns.cap contains Ethernet -> IPv4 -> UDP -> DNS packets
         if (decodedPacket.layers.length >= 3) {
-          expect(decodedPacket.layers[0].protocolName).toBe('Ethernet II');
-          expect(decodedPacket.layers[1].protocolName).toMatch(/^(IPv4|IPv6|ARP)$/); // Could be IPv4, IPv6 or ARP
+          const ethLayerObject = decodedPacket.layers[0];
+          expect(ethLayerObject.protocolName).toBe('Ethernet II');
 
-          const ipLayer = decodedPacket.layers[1] as DecodedPacketLayer;
-          if (ipLayer.protocolName === 'IPv4' || ipLayer.protocolName === 'IPv6') {
-            expect(decodedPacket.layers[2].protocolName).toMatch(/^(TCP|UDP|ICMPv4|ICMPv6)$/);
+          const ipLayerObject = decodedPacket.layers[1];
+          expect(ipLayerObject.protocolName).toBe('IPv4');
+          if (ipLayerObject.protocolName === 'IPv4') {
+            const ipData = (ipLayerObject as DecodedPacketLayer).data as IPv4Layer;
+            // Example: expect(ipData.sourceAddress).toBe('192.168.1.100'); // If known
+          }
 
-            if (
-              decodedPacket.layers.length >= 4 &&
-              (decodedPacket.layers[2].protocolName === 'UDP' ||
-                decodedPacket.layers[2].protocolName === 'TCP')
-            ) {
-              const transportLayer = decodedPacket.layers[2] as DecodedPacketLayer;
-              // Check if DNS decoder produced a DNS layer or if it's raw data
-              const appLayer = decodedPacket.layers[3];
-              expect(appLayer.protocolName).toMatch(/^(DNS|HTTP|Raw Data)$/);
+          const transportLayerObject = decodedPacket.layers[2];
+          expect(transportLayerObject.protocolName).toBe('UDP');
+          if (transportLayerObject.protocolName === 'UDP') {
+            const udpData = (transportLayerObject as DecodedPacketLayer).data as UDPLayer;
+            // Example: expect(udpData.destinationPort).toBe(53); // If known
+          }
 
-              // Check raw bytes and payload consistency
-              const ethLayer = decodedPacket.layers[0] as DecodedPacketLayer;
-              if (ethLayer.payload) {
-                expect(
-                  ipLayer.bytes.equals(ethLayer.payload.subarray(0, ipLayer.bytes.length)),
-                ).toBe(true);
-              }
-              if (ipLayer.payload) {
-                // Removed redundant check for 'Raw Data'
-                const l3Payload = decodedPacket.layers[2] as DecodedPacketLayer;
-                expect(
-                  l3Payload.bytes.equals(ipLayer.payload.subarray(0, l3Payload.bytes.length)),
-                ).toBe(true);
-              }
-              if (transportLayer.payload && decodedPacket.layers[3].protocolName !== 'Raw Data') {
-                const l4Payload = decodedPacket.layers[3] as DecodedPacketLayer;
-                expect(
-                  l4Payload.bytes.equals(
-                    transportLayer.payload.subarray(0, l4Payload.bytes.length),
-                  ),
-                ).toBe(true);
-              }
+          if (decodedPacket.layers.length >= 4) {
+            const appLayerObject = decodedPacket.layers[3];
+            expect(appLayerObject.protocolName).toBe('DNS');
+            if (appLayerObject.protocolName === 'DNS') {
+              const dnsData = (appLayerObject as DecodedPacketLayer).data as DNSLayer;
+              // Example: expect(dnsData.queries?.[0]?.name).toBe('example.com'); // If known
+            }
+
+            // Check raw bytes and payload consistency
+            const ethPayload = (ethLayerObject as DecodedPacketLayer).payload;
+            if (ethLayerObject.protocolName === 'Ethernet II' && ethPayload) {
+              expect(
+                ipLayerObject.bytes.equals(ethPayload.subarray(0, ipLayerObject.bytes.length)),
+              ).toBe(true);
+            }
+
+            const ipPayload = (ipLayerObject as DecodedPacketLayer).payload;
+            if (ipLayerObject.protocolName === 'IPv4' && ipPayload) {
+              expect(
+                transportLayerObject.bytes.equals(ipPayload.subarray(0, transportLayerObject.bytes.length)),
+              ).toBe(true);
+            }
+
+            const transportPayload = (transportLayerObject as DecodedPacketLayer).payload;
+            if (transportLayerObject.protocolName === 'UDP' && transportPayload && appLayerObject.protocolName === 'DNS') {
+              expect(
+                appLayerObject.bytes.equals(
+                  transportPayload.subarray(0, appLayerObject.bytes.length),
+                ),
+              ).toBe(true);
             }
           }
         }
       }
     });
 
-    // Add more tests for other PCAP files if needed
-    // e.g., it('should decode packets from ipv4frags.pcap correctly', () => { ... });
+    it('should decode packets from ipv4frags.pcap correctly', async () => {
+      const filePath = path.join(dataDir, 'ipv4frags.pcap');
+      const fileBuffer = fs.readFileSync(filePath);
+      const globalHeader = parsePcapGlobalHeader(fileBuffer);
+      if (!globalHeader) throw new Error('Could not parse PCAP global header for ipv4frags.pcap');
+      expect(globalHeader.network).toBe(1); // LINKTYPE_ETHERNET
+
+      for await (const packetData of iteratePcapPackets(fileBuffer)) {
+        const timestamp = packetData.header.ts_sec + packetData.header.ts_usec / 1_000_000;
+        const decodedPacket: DecodedPacket = decodePacket(
+          packetData.packetData,
+          globalHeader.network,
+          decoderRegistry,
+          timestamp,
+          packetData.header.orig_len,
+          packetData.header.incl_len,
+        );
+
+        expect(decodedPacket).toBeDefined();
+        expect(decodedPacket.layers.length).toBeGreaterThan(0);
+        const ethLayerObject = decodedPacket.layers[0];
+        expect(ethLayerObject.protocolName).toBe('Ethernet II');
+
+        if (decodedPacket.layers.length > 1) {
+          const ipLayerObject = decodedPacket.layers[1];
+          expect(ipLayerObject.protocolName).toBe('IPv4');
+          if (ipLayerObject.protocolName === 'IPv4') {
+            const ipData = (ipLayerObject as DecodedPacketLayer).data as IPv4Layer;
+            // Check for fragmentation indicators
+            // Example: if (ipData.flags && (ipData.flags.mf || ipData.fragmentOffset > 0)) { /* is fragmented */ }
+            const ipPayload = (ipLayerObject as DecodedPacketLayer).payload;
+            if (ipPayload && ipPayload.length > 0) {
+              // If it's not the last fragment, it might not have a recognized L4 protocol
+              // or it might be 'Raw Data' if the payload is part of a fragment.
+            }
+          }
+        }
+      }
+    });
+
+    it('should decode TCP packets from chargen-tcp.pcap correctly', async () => {
+      const filePath = path.join(dataDir, 'chargen-tcp.pcap');
+      const fileBuffer = fs.readFileSync(filePath);
+      const globalHeader = parsePcapGlobalHeader(fileBuffer);
+      if (!globalHeader) throw new Error('Could not parse PCAP global header for chargen-tcp.pcap');
+      expect(globalHeader.network).toBe(1); // LINKTYPE_ETHERNET
+
+      for await (const packetData of iteratePcapPackets(fileBuffer)) {
+        const timestamp = packetData.header.ts_sec + packetData.header.ts_usec / 1_000_000;
+        const decodedPacket: DecodedPacket = decodePacket(
+          packetData.packetData,
+          globalHeader.network,
+          decoderRegistry,
+          timestamp,
+          packetData.header.orig_len,
+          packetData.header.incl_len,
+        );
+
+        expect(decodedPacket).toBeDefined();
+        expect(decodedPacket.layers.length).toBeGreaterThanOrEqual(3); // Eth, IP, TCP
+        const ethLayerObject = decodedPacket.layers[0];
+        expect(ethLayerObject.protocolName).toBe('Ethernet II');
+        const ipLayerObject = decodedPacket.layers[1];
+        expect(ipLayerObject.protocolName).toBe('IPv4');
+        const tcpLayerObject = decodedPacket.layers[2];
+        expect(tcpLayerObject.protocolName).toBe('TCP');
+
+        if (tcpLayerObject.protocolName === 'TCP') {
+          const tcpData = (tcpLayerObject as DecodedPacketLayer).data as TCPLayer;
+          expect(tcpData).toBeDefined();
+          expect(tcpData.sourcePort).toBeGreaterThan(0);
+          expect(tcpData.destinationPort).toBeGreaterThan(0);
+
+          const isChargenPort = tcpData.sourcePort === 19 || tcpData.destinationPort === 19;
+          if (isChargenPort && decodedPacket.layers.length > 3) {
+            const appLayerObject = decodedPacket.layers[3];
+            expect(appLayerObject.protocolName).toBe('Raw Data'); // No specific Chargen decoder
+            expect(appLayerObject.bytes.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+
+    it('should decode UDP packets from chargen-udp.pcap correctly', async () => {
+      const filePath = path.join(dataDir, 'chargen-udp.pcap');
+      const fileBuffer = fs.readFileSync(filePath);
+      const globalHeader = parsePcapGlobalHeader(fileBuffer);
+      if (!globalHeader) throw new Error('Could not parse PCAP global header for chargen-udp.pcap');
+      expect(globalHeader.network).toBe(1); // LINKTYPE_ETHERNET
+
+      for await (const packetData of iteratePcapPackets(fileBuffer)) {
+        const timestamp = packetData.header.ts_sec + packetData.header.ts_usec / 1_000_000;
+        const decodedPacket: DecodedPacket = decodePacket(
+          packetData.packetData,
+          globalHeader.network,
+          decoderRegistry,
+          timestamp,
+          packetData.header.orig_len,
+          packetData.header.incl_len,
+        );
+
+        expect(decodedPacket).toBeDefined();
+        expect(decodedPacket.layers.length).toBeGreaterThanOrEqual(3); // Eth, IP, UDP
+        const ethLayerObject = decodedPacket.layers[0];
+        expect(ethLayerObject.protocolName).toBe('Ethernet II');
+        const ipLayerObject = decodedPacket.layers[1];
+        expect(ipLayerObject.protocolName).toBe('IPv4');
+        const udpLayerObject = decodedPacket.layers[2];
+        expect(udpLayerObject.protocolName).toBe('UDP');
+
+        if (udpLayerObject.protocolName === 'UDP') {
+          const udpData = (udpLayerObject as DecodedPacketLayer).data as UDPLayer;
+          expect(udpData).toBeDefined();
+          expect(udpData.sourcePort).toBeGreaterThan(0);
+          expect(udpData.destinationPort).toBeGreaterThan(0);
+          expect(udpData.length).toBeGreaterThanOrEqual(8); // UDP header size
+
+          const isChargenPort = udpData.sourcePort === 19 || udpData.destinationPort === 19;
+          if (isChargenPort && decodedPacket.layers.length > 3) {
+            const appLayerObject = decodedPacket.layers[3];
+            expect(appLayerObject.protocolName).toBe('Raw Data'); // No specific Chargen decoder
+            expect(appLayerObject.bytes.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+
+    it('should decode DHCP packets from dhcp.pcap correctly', async () => {
+      const filePath = path.join(dataDir, 'dhcp.pcap');
+      const fileBuffer = fs.readFileSync(filePath);
+      const globalHeader = parsePcapGlobalHeader(fileBuffer);
+      if (!globalHeader) throw new Error('Could not parse PCAP global header for dhcp.pcap');
+      expect(globalHeader.network).toBe(1); // LINKTYPE_ETHERNET
+
+      for await (const packetData of iteratePcapPackets(fileBuffer)) {
+        const timestamp = packetData.header.ts_sec + packetData.header.ts_usec / 1_000_000;
+        const decodedPacket: DecodedPacket = decodePacket(
+          packetData.packetData,
+          globalHeader.network,
+          decoderRegistry,
+          timestamp,
+          packetData.header.orig_len,
+          packetData.header.incl_len,
+        );
+
+        expect(decodedPacket).toBeDefined();
+        expect(decodedPacket.layers.length).toBeGreaterThanOrEqual(3); // Eth, IP, UDP
+        const ethLayerObject = decodedPacket.layers[0];
+        expect(ethLayerObject.protocolName).toBe('Ethernet II');
+        const ipLayerObject = decodedPacket.layers[1];
+        expect(ipLayerObject.protocolName).toBe('IPv4');
+        const udpLayerObject = decodedPacket.layers[2];
+        expect(udpLayerObject.protocolName).toBe('UDP');
+
+        if (udpLayerObject.protocolName === 'UDP') {
+          const udpData = (udpLayerObject as DecodedPacketLayer).data as UDPLayer;
+          expect(udpData).toBeDefined();
+
+          const isDhcpPort =
+            (udpData.sourcePort === 67 && udpData.destinationPort === 68) ||
+            (udpData.sourcePort === 68 && udpData.destinationPort === 67);
+          expect(isDhcpPort).toBe(true);
+
+          if (decodedPacket.layers.length > 3) {
+            const appLayerObject = decodedPacket.layers[3];
+            // No specific DHCP decoder is registered, so it should be Raw Data
+            expect(appLayerObject.protocolName).toBe('Raw Data');
+            expect(appLayerObject.bytes.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+    // e.g., it('should decode packets from some_other_file.pcap correctly', () => { ... });
   });
 
   describe('PCAPng File Decoding', () => {
@@ -166,19 +359,21 @@ describe('End-to-End Packet Decoding', () => {
           interfaceInfo,
         );
 
-        expect(decodedPacket).toBeDefined();
-        expect(decodedPacket.timestamp).toBeCloseTo(timestamp, 9); // Compare with high precision
-        expect(decodedPacket.originalLength).toBe(packetData.originalLength);
-        expect(decodedPacket.capturedLength).toBe(packetData.capturedLength);
-        expect(decodedPacket.layers).toBeInstanceOf(Array);
-        expect(decodedPacket.layers.length).toBeGreaterThan(0);
-        expect(decodedPacket.interfaceInfo).toEqual(interfaceInfo);
+        const decodedPkt = decodedPacket as DecodedPacket; // Use DecodedPacket type
+        expect(decodedPkt).toBeDefined();
+        expect(decodedPkt.timestamp).toBeCloseTo(timestamp, 9); // Compare with high precision
+        expect(decodedPkt.originalLength).toBe(packetData.originalLength);
+        expect(decodedPkt.capturedLength).toBe(packetData.capturedLength);
+        expect(decodedPkt.layers).toBeInstanceOf(Array);
+        expect(decodedPkt.layers.length).toBeGreaterThan(0);
+        expect(decodedPkt.interfaceInfo).toEqual(interfaceInfo);
 
-        for (const layer of decodedPacket.layers) {
+        for (const layer of decodedPkt.layers) {
           expect(layer).toHaveProperty('protocolName');
           expect(layer).toHaveProperty('bytes');
           expect(layer.bytes).toBeInstanceOf(Buffer);
-          expect(layer.bytes.length).toBeGreaterThan(0);
+          // layer.bytes.length can be 0 for some protocols or layers without data
+          // expect(layer.bytes.length).toBeGreaterThan(0);
 
           if (layer.protocolName !== 'Raw Data') {
             const decodedLayer = layer as DecodedPacketLayer;
@@ -190,12 +385,89 @@ describe('End-to-End Packet Decoding', () => {
         }
         // Add more specific assertions if the structure of couchbase-create-bucket.pcapng is known
         // For example, checking layer names if it's Ethernet -> IP -> TCP -> (Raw Data or Couchbase specific)
-        if (decodedPacket.layers.length > 0) {
-          expect(decodedPacket.layers[0].protocolName).toBe('Ethernet II'); // Assuming Ethernet
+        if (decodedPkt.layers.length > 0) {
+          const ethLayerObject = decodedPkt.layers[0];
+          expect(ethLayerObject.protocolName).toBe('Ethernet II'); // Assuming Ethernet
+          if (decodedPkt.layers.length > 1) {
+            const ipLayerObject = decodedPkt.layers[1];
+            expect(ipLayerObject.protocolName).toMatch(/^(IPv4|IPv6)$/);
+            if (decodedPkt.layers.length > 2) {
+              const tcpLayerObject = decodedPkt.layers[2];
+              expect(tcpLayerObject.protocolName).toBe('TCP');
+              if (tcpLayerObject.protocolName === 'TCP') {
+                const tcpData = (tcpLayerObject as DecodedPacketLayer).data as TCPLayer;
+                // Add assertions for tcpData if needed
+                expect(tcpData).toBeDefined();
+              }
+            }
+          }
         }
       }
     });
 
+    it('should decode packets from couchbase-xattr.pcapng correctly', async () => {
+      const filePath = path.join(dataDir, 'couchbase-xattr.pcapng');
+      const fileBuffer = fs.readFileSync(filePath);
+
+      for await (const packetData of iteratePcapNgPackets(fileBuffer)) {
+        const timestamp = Number(packetData.timestamp) / 1_000_000_000.0;
+        const interfaceInfo = {
+          interfaceId: packetData.interface_id,
+          name: packetData.interface_name,
+          description: packetData.interface_description,
+          linkType: packetData.interface_link_type,
+        };
+
+        const decodedPacket: DecodedPacket = decodePacket(
+          packetData.packetData,
+          packetData.interface_link_type,
+          decoderRegistry,
+          timestamp,
+          packetData.originalLength,
+          packetData.capturedLength,
+          interfaceInfo,
+        );
+
+        expect(decodedPacket).toBeDefined();
+        expect(decodedPacket.timestamp).toBeCloseTo(timestamp, 9);
+        expect(decodedPacket.originalLength).toBe(packetData.originalLength);
+        expect(decodedPacket.capturedLength).toBe(packetData.capturedLength);
+        expect(decodedPacket.layers).toBeInstanceOf(Array);
+        expect(decodedPacket.layers.length).toBeGreaterThan(0);
+        expect(decodedPacket.interfaceInfo).toEqual(interfaceInfo);
+
+        for (const layer of decodedPacket.layers) {
+          expect(layer).toHaveProperty('protocolName');
+          expect(layer).toHaveProperty('bytes');
+          expect(layer.bytes).toBeInstanceOf(Buffer);
+          if (layer.protocolName !== 'Raw Data') {
+            const decodedLayer = layer as DecodedPacketLayer;
+            expect(decodedLayer).toHaveProperty('data');
+            if (Object.prototype.hasOwnProperty.call(decodedLayer, 'payload')) {
+              expect(decodedLayer.payload).toBeInstanceOf(Buffer);
+            }
+          }
+        }
+
+        if (decodedPacket.layers.length > 0) {
+          const ethLayerObject = decodedPacket.layers[0];
+          expect(ethLayerObject.protocolName).toBe('Ethernet II'); // Assuming Ethernet
+          if (decodedPacket.layers.length > 1) {
+            const ipLayerObject = decodedPacket.layers[1];
+            expect(ipLayerObject.protocolName).toMatch(/^(IPv4|IPv6)$/); // Couchbase likely uses IP
+            if (decodedPacket.layers.length > 2) {
+              const transportLayerObject = decodedPacket.layers[2];
+              expect(transportLayerObject.protocolName).toBe('TCP'); // Couchbase typically uses TCP
+              if (transportLayerObject.protocolName === 'TCP') {
+                const tcpData = (transportLayerObject as DecodedPacketLayer).data as TCPLayer;
+                // Add assertions for tcpData if needed
+                expect(tcpData).toBeDefined();
+              }
+            }
+          }
+        }
+      }
+    });
     // Add more tests for other PCAPng files if needed
   });
   describe('Corrupted PCAP File Handling', () => {

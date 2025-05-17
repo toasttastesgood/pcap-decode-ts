@@ -220,5 +220,289 @@ describe('ARPDecoder', () => {
     it('should return null for nextProtocolType', () => {
       expect(decoder.nextProtocolType()).toBeNull();
     });
+it('should handle non-Ethernet hardware type and non-6-byte MAC by returning hex string for MAC', () => {
+      const nonEthernetArpBuffer = Buffer.from([
+        0x00,
+        0x02, // Hardware Type: Experimental Ethernet (2)
+        0x08,
+        0x00, // Protocol Type: IPv4
+        0x08, // Hardware Address Length: 8
+        0x04, // Protocol Address Length: 4
+        0x00,
+        0x01, // Opcode: Request
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        0x05,
+        0x06,
+        0x07,
+        0x08, // Sender MAC (8 bytes)
+        192,
+        168,
+        1,
+        100, // Sender IP
+        0x11,
+        0x22,
+        0x33,
+        0x44,
+        0x55,
+        0x66,
+        0x77,
+        0x88, // Target MAC (8 bytes)
+        192,
+        168,
+        1,
+        1, // Target IP
+      ]);
+      const decoded = decoder.decode(nonEthernetArpBuffer) as DecoderOutputLayer<ARPLayer>;
+      expect(decoded.data.hardwareType).toBe(2);
+      expect(decoded.data.hardwareAddressLength).toBe(8);
+      expect(decoded.data.senderMac).toBe('0102030405060708'); // Fallback to hex
+      expect(decoded.data.targetMac).toBe('1122334455667788'); // Fallback to hex
+      expect(decoded.data.senderIp).toBe('192.168.1.100');
+      expect(decoded.data.targetIp).toBe('192.168.1.1');
+      expect(decoded.headerLength).toBe(8 + 8 + 4 + 8 + 4); // Fixed + SMAC + SIP + TMAC + TIP
+    });
+
+    it('should handle IPv4 protocol type with non-4-byte address length by returning hex string for IP', () => {
+      const nonStandardIpLengthArpBuffer = Buffer.from([
+        0x00,
+        0x01, // Hardware Type: Ethernet
+        0x08,
+        0x00, // Protocol Type: IPv4
+        0x06, // Hardware Address Length: 6
+        0x06, // Protocol Address Length: 6 (non-standard for IPv4)
+        0x00,
+        0x01, // Opcode: Request
+        0x00,
+        0x50,
+        0x56,
+        0xc0,
+        0x00,
+        0x08, // Sender MAC
+        0xc0,
+        0xa8,
+        0x01,
+        0x64,
+        0x01,
+        0x02, // Sender IP (6 bytes)
+        0x00,
+        0x0c,
+        0x29,
+        0xeb,
+        0x5e,
+        0x3c, // Target MAC
+        0xc0,
+        0xa8,
+        0x01,
+        0x01,
+        0x03,
+        0x04, // Target IP (6 bytes)
+      ]);
+      const decoded = decoder.decode(
+        nonStandardIpLengthArpBuffer,
+      ) as DecoderOutputLayer<ARPLayer>;
+      expect(decoded.data.protocolType).toBe(0x0800);
+      expect(decoded.data.protocolAddressLength).toBe(6);
+      expect(decoded.data.senderIp).toBe('c0a801640102'); // Fallback to hex
+      expect(decoded.data.targetIp).toBe('c0a801010304'); // Fallback to hex
+      expect(decoded.headerLength).toBe(8 + 6 + 6 + 6 + 6);
+    });
+
+    it('should handle zero hardware address length', () => {
+      const zeroHardwareLengthBuffer = Buffer.from([
+        0x00,
+        0x01, // Hardware Type: Ethernet
+        0x08,
+        0x00, // Protocol Type: IPv4
+        0x00, // Hardware Address Length: 0
+        0x04, // Protocol Address Length: 4
+        0x00,
+        0x01, // Opcode: Request
+        // No Sender MAC
+        192,
+        168,
+        1,
+        100, // Sender IP
+        // No Target MAC
+        192,
+        168,
+        1,
+        1, // Target IP
+      ]);
+      const decoded = decoder.decode(zeroHardwareLengthBuffer) as DecoderOutputLayer<ARPLayer>;
+      expect(decoded.data.hardwareAddressLength).toBe(0);
+      expect(decoded.data.senderMac).toBe(''); // Empty hex string
+      expect(decoded.data.targetMac).toBe(''); // Empty hex string
+      expect(decoded.data.senderIp).toBe('192.168.1.100');
+      expect(decoded.data.targetIp).toBe('192.168.1.1');
+      expect(decoded.headerLength).toBe(8 + 0 + 4 + 0 + 4);
+    });
+
+    it('should handle zero protocol address length', () => {
+      const zeroProtocolLengthBuffer = Buffer.from([
+        0x00,
+        0x01, // Hardware Type: Ethernet
+        0x08,
+        0x00, // Protocol Type: IPv4
+        0x06, // Hardware Address Length: 6
+        0x00, // Protocol Address Length: 0
+        0x00,
+        0x01, // Opcode: Request
+        0x00,
+        0x50,
+        0x56,
+        0xc0,
+        0x00,
+        0x08, // Sender MAC
+        // No Sender IP
+        0x00,
+        0x0c,
+        0x29,
+        0xeb,
+        0x5e,
+        0x3c, // Target MAC
+        // No Target IP
+      ]);
+      const decoded = decoder.decode(zeroProtocolLengthBuffer) as DecoderOutputLayer<ARPLayer>;
+      expect(decoded.data.protocolAddressLength).toBe(0);
+      expect(decoded.data.senderIp).toBe(''); // Empty hex string
+      expect(decoded.data.targetIp).toBe(''); // Empty hex string
+      expect(decoded.data.senderMac).toBe('00:50:56:c0:00:08');
+      expect(decoded.data.targetMac).toBe('00:0c:29:eb:5e:3c');
+      expect(decoded.headerLength).toBe(8 + 6 + 0 + 6 + 0);
+    });
+
+    it('should throw BufferOutOfBoundsError if buffer is MIN_ARP_HEADER_SIZE but address lengths are non-zero', () => {
+      const minimalBufferWithNonZeroLengths = Buffer.from([
+        0x00,
+        0x01, // Hardware Type
+        0x08,
+        0x00, // Protocol Type
+        0x06, // Hardware Address Length
+        0x04, // Protocol Address Length
+        0x00,
+        0x01, // Opcode
+      ]); // Exactly 8 bytes
+      expect(() => decoder.decode(minimalBufferWithNonZeroLengths)).toThrow(
+        BufferOutOfBoundsError,
+      );
+      expect(() => decoder.decode(minimalBufferWithNonZeroLengths)).toThrow(
+        'Buffer too small for ARP packet. Expected 28 bytes based on hardware_addr_len=6 and protocol_addr_len=4, got 8. Current offset: 8.',
+      );
+    });
+
+    it('should correctly decode a buffer that is exactly the expectedTotalLength', () => {
+      // Same as arpRequestBuffer, which is 28 bytes
+      const exactLengthBuffer = Buffer.from([
+        0x00,
+        0x01,
+        0x08,
+        0x00,
+        0x06,
+        0x04,
+        0x00,
+        0x01,
+        0x00,
+        0x50,
+        0x56,
+        0xc0,
+        0x00,
+        0x08,
+        192,
+        168,
+        1,
+        100,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        192,
+        168,
+        1,
+        1,
+      ]);
+      const decoded = decoder.decode(exactLengthBuffer) as DecoderOutputLayer<ARPLayer>;
+      expect(decoded.headerLength).toBe(28);
+      expect(decoded.payload.length).toBe(0);
+      expect(decoded.data.senderMac).toBe('00:50:56:c0:00:08');
+      expect(decoded.data.targetIp).toBe('192.168.1.1');
+    });
+
+    it('should correctly decode an ARP packet with trailing data as payload', () => {
+      const arpRequestWithPayloadBuffer = Buffer.concat([
+        arpRequestBuffer,
+        Buffer.from([0xDE, 0xAD, 0xBE, 0xEF]), // Trailing data
+      ]);
+      const decoded = decoder.decode(arpRequestWithPayloadBuffer) as DecoderOutputLayer<ARPLayer>;
+
+      expect(decoded).not.toBeNull();
+      expect(decoded.protocolName).toBe('ARP');
+      expect(decoded.headerLength).toBe(28); // ARP header itself is still 28 bytes
+      expect(decoded.payload.length).toBe(4);
+      expect(decoded.payload).toEqual(Buffer.from([0xDE, 0xAD, 0xBE, 0xEF]));
+
+      const data = decoded.data;
+      expect(data.hardwareType).toBe(1); // Ethernet
+      expect(data.protocolType).toBe(0x0800); // IPv4
+      expect(data.opcode).toBe(1); // Request
+      expect(data.senderMac).toBe('00:50:56:c0:00:08');
+      expect(data.senderIp).toBe('192.168.1.100');
+      expect(data.targetMac).toBe('00:00:00:00:00:00');
+      expect(data.targetIp).toBe('192.168.1.1');
+    });
+
+    it('should correctly decode an ARP packet with an unknown operation code', () => {
+      const arpUnknownOpcodeBuffer = Buffer.from([
+        0x00,
+        0x01, // Hardware Type: Ethernet
+        0x08,
+        0x00, // Protocol Type: IPv4
+        0x06, // Hardware Address Length
+        0x04, // Protocol Address Length
+        0x00,
+        0x05, // Opcode: Unknown (5)
+        0x00,
+        0x50,
+        0x56,
+        0xc0,
+        0x00,
+        0x08, // Sender MAC
+        192,
+        168,
+        1,
+        100, // Sender IP
+        0x00,
+        0x0c,
+        0x29,
+        0xeb,
+        0x5e,
+        0x3c, // Target MAC
+        192,
+        168,
+        1,
+        1, // Target IP
+      ]);
+      const decoded = decoder.decode(arpUnknownOpcodeBuffer) as DecoderOutputLayer<ARPLayer>;
+
+      expect(decoded).not.toBeNull();
+      expect(decoded.protocolName).toBe('ARP');
+      expect(decoded.headerLength).toBe(28);
+      expect(decoded.payload.length).toBe(0);
+
+      const data = decoded.data;
+      expect(data.hardwareType).toBe(1);
+      expect(data.protocolType).toBe(0x0800);
+      expect(data.hardwareAddressLength).toBe(6);
+      expect(data.protocolAddressLength).toBe(4);
+      expect(data.opcode).toBe(5); // Check the unknown opcode
+      expect(data.senderMac).toBe('00:50:56:c0:00:08');
+      expect(data.senderIp).toBe('192.168.1.100');
+      expect(data.targetMac).toBe('00:0c:29:eb:5e:3c');
+      expect(data.targetIp).toBe('192.168.1.1');
+    });
   });
 });

@@ -16,7 +16,6 @@ export class IPv6Decoder implements Decoder<IPv6Layer> {
    * The human-readable name for this protocol.
    */
   public readonly protocolName = 'IPv6';
-  private lastNextHeader: number | null = null; // Stores the Next Header field for nextProtocolType
 
   /**
    * Decodes an IPv6 packet from the provided buffer.
@@ -62,8 +61,6 @@ export class IPv6Decoder implements Decoder<IPv6Layer> {
     const sourceIp = formatIPv6(sourceIpBuffer);
     const destinationIp = formatIPv6(destinationIpBuffer);
 
-    this.lastNextHeader = nextHeader;
-
     const data: IPv6Layer = {
       version,
       trafficClass,
@@ -93,7 +90,7 @@ export class IPv6Decoder implements Decoder<IPv6Layer> {
    * @param _decodedLayer - The decoded IPv6 layer data. Not directly used as `nextHeader` is stored internally during decode.
    * @returns The protocol number of the next layer (e.g., 6 for TCP, 17 for UDP, 58 for ICMPv6), or `null` if not applicable.
    */
-  public nextProtocolType(_decodedLayer: IPv6Layer): number | null {
-    return this.lastNextHeader;
+  public nextProtocolType(decodedLayer: IPv6Layer): number | null {
+    return decodedLayer.nextHeader;
   }
 }

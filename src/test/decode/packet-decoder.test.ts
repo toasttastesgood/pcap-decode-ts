@@ -7,6 +7,7 @@ import {
 } from '../../decode/packet-structures';
 import { Decoder, DecoderOutputLayer } from '../../decode/decoder';
 import { DecoderRegistry } from '../../decode/decoder-registry';
+import { PcapError, PcapDecodingError } from '../../errors'; // Added PcapError imports
 import * as logger from '../../utils/logger'; // Import all as logger to mock its functions
 
 // Mock the logger functions
@@ -119,18 +120,34 @@ class MockErrorDecoder implements Decoder<unknown> {
   }
 }
 
+
+class MockPcapErrorDecoder implements Decoder<unknown> {
+  protocolName = 'MockPcapErrorDecoder';
+  public headerLength = 0;
+
+  decode(_buffer: Buffer, _context?: unknown): DecoderOutputLayer<unknown> | null {
+    throw new PcapDecodingError('Mock PcapDecodingError');
+  }
+
+  nextProtocolType(_decodedLayer: unknown): number | string | null {
+    return null;
+  }
+}
+
 describe('decodePacket', () => {
   let registry: DecoderRegistry;
   let mockEthernetDecoder: MockEthernetDecoder;
   let mockIPv4Decoder: MockIPv4Decoder;
   let mockTCPDecoder: MockTCPDecoder;
   let mockErrorDecoder: MockErrorDecoder;
+  let mockPcapErrorDecoder: MockPcapErrorDecoder; // Added
 
   const ethLinkType = 1; // LINKTYPE_ETHERNET
   const ipv4ProtocolType = 0x0800;
   const tcpProtocolType = 6;
   const unknownProtocolType = 0xffff;
   const errorProtocolType = 0xeeee;
+  const pcapErrorProtocolType = 0xdddd; // New type for PcapError test
 
   beforeEach(() => {
     registry = new DecoderRegistry();
@@ -138,17 +155,18 @@ describe('decodePacket', () => {
     mockIPv4Decoder = new MockIPv4Decoder();
     mockTCPDecoder = new MockTCPDecoder();
     mockErrorDecoder = new MockErrorDecoder();
+    mockPcapErrorDecoder = new MockPcapErrorDecoder(); // Added
 
     registry.registerDecoder(ethLinkType, mockEthernetDecoder);
     registry.registerDecoder(ipv4ProtocolType, mockIPv4Decoder);
     registry.registerDecoder(tcpProtocolType, mockTCPDecoder);
     registry.registerDecoder(errorProtocolType, mockErrorDecoder);
+    registry.registerDecoder(pcapErrorProtocolType, mockPcapErrorDecoder); // Added
 
     // Reset mocks
     vi.mocked(logger.logWarning).mockClear();
-    vi.mocked(logger.logError).mockClear();
+    vi.mocked(logger.logError).mockClear(); // logError is still mocked, though not expected for these cases
   });
-
   it('should correctly chain multiple decoders for a full packet', () => {
     const rawPacket = Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]); // Eth(2) + IPv4(2) + TCP(2) + Payload(2)
     mockEthernetDecoder.setNextProtocol(ipv4ProtocolType);
@@ -241,9 +259,30 @@ describe('decodePacket', () => {
     // The raw data should be what was passed to the failing decoder
     expect((decoded.layers[1] as RawPayloadLayer).bytes.toString('hex')).toBe('eeff1122');
 
-    expect(logger.logError).toHaveBeenCalledWith(
+    expect(logger.logWarning).toHaveBeenCalledWith(
       expect.stringContaining(
-        `Error decoding protocol ${mockErrorDecoder.protocolName || errorProtocolType}: Mock decoding error`,
+        // Updated to check for the generic error message format
+        `Unexpected error in protocol ${mockErrorDecoder.protocolName || errorProtocolType}: Mock decoding error`,
+      ),
+    );
+  });
+
+  it('should handle PcapError when a decoder throws a PcapError subclass and include remaining data as raw payload', () => {
+    const rawPacket = Buffer.from([0x01, 0x02, 0xdd, 0xcc, 0x33, 0x44]); // Eth(2) + PcapErrorDecoderInput(2) + Remaining(2)
+    mockEthernetDecoder.setNextProtocol(pcapErrorProtocolType); // Ethernet points to PcapErrorDecoder
+
+    const decoded = decodePacket(rawPacket, ethLinkType, registry);
+
+    expect(decoded.layers.length).toBe(2); // Ethernet + Raw Data (after PcapError)
+    expect(decoded.layers[0].protocolName).toBe('MockEthernet');
+    expect((decoded.layers[0] as PacketStructureLayer).payload?.toString('hex')).toBe('ddcc3344');
+
+    expect(decoded.layers[1].protocolName).toBe('Raw Data');
+    expect((decoded.layers[1] as RawPayloadLayer).bytes.toString('hex')).toBe('ddcc3344');
+
+    expect(logger.logWarning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Error decoding protocol ${mockPcapErrorDecoder.protocolName || pcapErrorProtocolType} at current stage: Mock PcapDecodingError`,
       ),
     );
   });
