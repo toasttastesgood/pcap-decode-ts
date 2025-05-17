@@ -6,3 +6,6 @@ dist/
 
 # OS-specific files
 .DS_Store
+
+*LAN.md
+coverage/tmp/
